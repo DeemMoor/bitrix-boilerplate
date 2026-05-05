@@ -1,0 +1,22 @@
+<?php
+
+declare(strict_types=1);
+
+use Bitrix\Main\Loader;
+use Phinx\Migration\AbstractMigration;
+
+final class $className extends AbstractMigration
+{
+    public function init(): void
+    {
+        Loader::includeModule('iblock');
+    }
+
+    public function up(): void
+    {
+    }
+
+    public function down(): void
+    {
+    }
+}

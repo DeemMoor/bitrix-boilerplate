@@ -1,0 +1,94 @@
+# Битрикс
+/bitrix/
+/upload/
+/local/.settings.php
+/local/.settings_extra.php
+/local/php_interface/dbconn.php
+
+# Локальное окружение
+.env
+.env.*
+!.env.example
+.environment
+/.docker/volume/
+
+# Composer
+/vendor/
+/local/vendor/
+composer.phar
+
+# Node
+/node_modules/
+
+# Логи и временные файлы
+/log/
+/logs/
+/local/logs/
+/local/tmp/
+/tmp/
+*.log
+*.log.*
+*.tmp
+*.cache
+*.orig
+*.swp
+*.swo
+nohup.out
+sess_*
+
+# Дампы базы, бэкапы и архивы
+*.sql
+*.bak
+*.old
+*.zip
+*.tar
+*.tar.gz
+*.tgz
+*.rar
+*.7z
+*.gz
+
+# Сгенерированные файлы и пользовательский контент
+*.csv
+*.xls
+*.xlsx
+*.doc
+*.docx
+*.pdf
+*.db
+
+# SEO и публичные файлы, которые обычно генерируются на окружении
+/sitemap.xml
+/sitemap_*
+/sitemap-*
+/google*.html
+/yandex*.html
+/mailru*.html
+/wmail*
+/*.xml
+/*.rss
+/web.config
+
+# IDE, ОС и локальные инструменты
+/.idea/
+/.vscode/
+/.phpstorm.meta.php
+/_ide_helper.php
+/_ide_helper_models.php
+.php-cs-fixer.cache
+.php_cs.cache
+.phpunit.cache
+.phpunit.result.cache
+report.xml
+.DS_Store
+.DS_Store*
+Thumbs.db
+ehthumbs.db
+.bash_history
+.cache/
+.composer/
+.config/
+.npm/
+
+# Шаблоны Phinx
+!/database/templates/*.txt

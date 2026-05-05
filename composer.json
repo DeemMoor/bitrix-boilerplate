@@ -1,0 +1,33 @@
+{
+    "name": "vendor/bitrix-boilerplate",
+    "description": "Production-ready boilerplate для проектов на 1C-Битрикс",
+    "type": "project",
+    "license": "MIT",
+    "require": {
+        "php": ">=8.4",
+        "vlucas/phpdotenv": "^5.6",
+        "robmorgan/phinx": "^0.16.11",
+        "monolog/monolog": "^3.10",
+        "symfony/console": "^8.0",
+        "webpractik/bitrixoa": "^1.2",
+        "zircote/swagger-php": "^3.3"
+    },
+    "require-dev": {
+        "symfony/var-dumper": "^7.4",
+        "phpunit/phpunit": "^13.1"
+    },
+    "autoload-dev": {
+        "psr-4": {
+            "Tests\\": "tests/"
+        }
+    },
+    "scripts": {
+        "test": "phpunit"
+    },
+    "config": {
+        "sort-packages": true,
+        "allow-plugins": {
+            "php-http/discovery": true
+        }
+    }
+}

@@ -1,0 +1,15 @@
+<?php
+
+define('DBPersistent', false);
+
+$DBType = 'mysql';
+$DBHost = 'db';
+$DBLogin = 'db';
+$DBPassword = 'db';
+$DBName = 'db';
+
+$DBDebug = false;
+$DBDebugToFile = false;
+
+define('BX_UTF', true);
+define('BX_USE_MYSQLI', true);

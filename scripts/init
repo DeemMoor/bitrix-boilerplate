@@ -1,0 +1,32 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+
+copy_if_missing() {
+    local source_file="$1"
+    local target_file="$2"
+
+    if [ -f "${target_file}" ]; then
+        echo "[SKIP] Файл уже существует: ${target_file#${PROJECT_ROOT}/}"
+        return
+    fi
+
+    if [ ! -f "${source_file}" ]; then
+        echo "[ERROR] Не найден example-файл: ${source_file#${PROJECT_ROOT}/}"
+        exit 1
+    fi
+
+    cp "${source_file}" "${target_file}"
+    echo "[OK] Создан файл: ${target_file#${PROJECT_ROOT}/}"
+}
+
+echo "[INFO] Инициализируем локальные файлы проекта..."
+
+copy_if_missing "${PROJECT_ROOT}/.env.example" "${PROJECT_ROOT}/.env"
+copy_if_missing "${PROJECT_ROOT}/local/.settings.php.example" "${PROJECT_ROOT}/local/.settings.php"
+copy_if_missing "${PROJECT_ROOT}/local/.settings_extra.php.example" "${PROJECT_ROOT}/local/.settings_extra.php"
+copy_if_missing "${PROJECT_ROOT}/local/php_interface/dbconn.php.example" "${PROJECT_ROOT}/local/php_interface/dbconn.php"
+
+echo "[SUCCESS] Инициализация завершена."

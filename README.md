@@ -17,13 +17,38 @@ public/upload -> ../upload
 ## Установка
 
 ```bash
+./scripts/init
 composer install
-cp .env.example .env
 ```
 
 Document root веб-сервера должен смотреть в `public`.
 
 Реальные файлы `/local/.settings.php`, `/local/.settings_extra.php` и `/local/php_interface/dbconn.php` не хранятся в git. Для них есть example-файлы без production-секретов.
+
+## Установщик Битрикс
+
+Скачать официальный установщик Битрикс можно из корня проекта:
+
+```bash
+./scripts/setup
+```
+
+Скрипт сохраняет файл в `public/bitrixsetup.php`. Этот файл не хранится в git.
+
+## Инициализация локальных файлов
+
+```bash
+./scripts/init
+```
+
+Скрипт создает локальные файлы из example-шаблонов, если их еще нет:
+
+- `.env`
+- `local/.settings.php`
+- `local/.settings_extra.php`
+- `local/php_interface/dbconn.php`
+
+Существующие файлы скрипт не перезаписывает.
 
 ## Локальный запуск через DL
 

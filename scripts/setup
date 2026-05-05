@@ -1,0 +1,20 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+TARGET_FILE="${PROJECT_ROOT}/public/bitrixsetup.php"
+SOURCE_URL="https://www.1c-bitrix.ru/download/scripts/bitrixsetup.php"
+
+echo "[INFO] Скачиваем установщик Битрикс..."
+
+if command -v wget >/dev/null 2>&1; then
+    wget -O "${TARGET_FILE}" "${SOURCE_URL}"
+elif command -v curl >/dev/null 2>&1; then
+    curl -fsSL "${SOURCE_URL}" -o "${TARGET_FILE}"
+else
+    echo "[ERROR] Нужен wget или curl для скачивания установщика."
+    exit 1
+fi
+
+echo "[SUCCESS] Установщик сохранен: public/bitrixsetup.php"

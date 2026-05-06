@@ -14,7 +14,7 @@ Options:
   --ref REF        Optional branch, tag, or commit to checkout. Default: master
   --dir DIR        Target project directory.
   --public-dir DIR Web root directory relative to project root or absolute path. Default: public
-  --force          Allow installing into an existing empty directory.
+  --force          Allow installing into an existing directory. Existing matching files may be overwritten.
   -h, --help       Show this help.
 EOF
 }
@@ -97,12 +97,7 @@ if [[ -e "$TARGET_DIR" ]]; then
 
     if [[ "$FORCE" -ne 1 ]]; then
         echo "Target directory already exists: $TARGET_DIR" >&2
-        echo "Use --force only for an existing empty directory." >&2
-        exit 1
-    fi
-
-    if find "$TARGET_DIR" -mindepth 1 -print -quit | grep -q .; then
-        echo "Target directory is not empty: $TARGET_DIR" >&2
+        echo "Use --force to install into an existing hosting directory." >&2
         exit 1
     fi
 else

@@ -7,10 +7,10 @@ Boilerplate для проектов на 1C-Битрикс.
 Если Apache на хостинге смотрит в `public_html`, выполните:
 
 ```bash
-bash <(curl -fsSL https://raw.githubusercontent.com/DeemMoor/bitrix-boilerplate/master/scripts/install.sh) --repo-url https://github.com/DeemMoor/bitrix-boilerplate.git --dir public_html --public-dir .
+bash <(curl -fsSL https://raw.githubusercontent.com/DeemMoor/bitrix-boilerplate/master/scripts/install.sh) --repo-url https://github.com/DeemMoor/bitrix-boilerplate.git --dir public_html --public-dir . --force
 ```
 
-Замените `public_html` на директорию, в которую смотрит ваш сайт. Команда скачает проект и сохранит установщик в `public_html/bitrixsetup.php`.
+Замените `public_html` на директорию, в которую смотрит ваш сайт. Команда скачает проект и сохранит установщик в `public_html/bitrixsetup.php`. `--force` нужен для хостингов, где web root уже создан.
 
 Если хостинг позволяет держать код выше document root:
 

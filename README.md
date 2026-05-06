@@ -2,19 +2,31 @@
 
 Boilerplate для проектов на 1C-Битрикс.
 
-## Установка
+## Установка на сервер
 
-Создать проект из репозитория и сразу скачать установщик Битрикс:
-
-```bash
-bash <(curl -fsSL https://raw.githubusercontent.com/DeemMoor/bitrix-boilerplate/master/scripts/install.sh) --repo-url https://github.com/DeemMoor/bitrix-boilerplate.git --dir my-project
-```
-
-После установки перейдите в проект:
+Если Apache на хостинге смотрит в `public_html`, выполните:
 
 ```bash
-cd my-project
+bash <(curl -fsSL https://raw.githubusercontent.com/DeemMoor/bitrix-boilerplate/master/scripts/install.sh) --repo-url https://github.com/DeemMoor/bitrix-boilerplate.git --dir public_html --public-dir .
 ```
+
+Замените `public_html` на директорию, в которую смотрит ваш сайт. Команда скачает проект и сохранит установщик в `public_html/bitrixsetup.php`.
+
+Если хостинг позволяет держать код выше document root:
+
+```bash
+bash <(curl -fsSL https://raw.githubusercontent.com/DeemMoor/bitrix-boilerplate/master/scripts/install.sh) --repo-url https://github.com/DeemMoor/bitrix-boilerplate.git --dir app --public-dir ../public_html
+```
+
+После установки откройте в браузере:
+
+```text
+https://example.com/bitrixsetup.php
+```
+
+## Локальная разработка
+
+DL нужен только локально. Инструкция по установке: https://local-deploy.github.io/ru/getting-started/install
 
 Создайте `.env`:
 
@@ -49,4 +61,10 @@ Document root веб-сервера: `public`.
 
 ```bash
 ./scripts/setup
+```
+
+Для нестандартного document root:
+
+```bash
+./scripts/setup --public-dir public_html
 ```

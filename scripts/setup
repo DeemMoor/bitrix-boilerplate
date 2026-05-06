@@ -3,8 +3,52 @@
 set -euo pipefail
 
 PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-TARGET_FILE="${PROJECT_ROOT}/public/bitrixsetup.php"
+PUBLIC_DIR="public"
 SOURCE_URL="https://www.1c-bitrix.ru/download/scripts/bitrixsetup.php"
+
+usage() {
+    cat <<'EOF'
+Usage:
+  ./scripts/setup [--public-dir DIR]
+
+Options:
+  --public-dir DIR  Web root directory relative to project root or absolute path. Default: public
+  -h, --help        Show this help.
+EOF
+}
+
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --public-dir)
+            PUBLIC_DIR="${2:-}"
+            shift 2
+            ;;
+        -h|--help)
+            usage
+            exit 0
+            ;;
+        *)
+            echo "[ERROR] Неизвестный аргумент: $1" >&2
+            usage >&2
+            exit 1
+            ;;
+    esac
+done
+
+if [ -z "${PUBLIC_DIR}" ]; then
+    echo "[ERROR] --public-dir не может быть пустым" >&2
+    exit 1
+fi
+
+if [[ "${PUBLIC_DIR}" = /* ]]; then
+    TARGET_DIR="${PUBLIC_DIR}"
+else
+    TARGET_DIR="${PROJECT_ROOT}/${PUBLIC_DIR}"
+fi
+
+mkdir -p "${TARGET_DIR}"
+mkdir -p "${PROJECT_ROOT}/bitrix" "${PROJECT_ROOT}/upload"
+TARGET_FILE="${TARGET_DIR%/}/bitrixsetup.php"
 
 echo "[INFO] Скачиваем установщик Битрикс..."
 
@@ -17,4 +61,4 @@ else
     exit 1
 fi
 
-echo "[SUCCESS] Установщик сохранен: public/bitrixsetup.php"
+echo "[SUCCESS] Установщик сохранен: ${TARGET_FILE#${PROJECT_ROOT}/}"

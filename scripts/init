@@ -1,32 +1,536 @@
 #!/usr/bin/env bash
 
 set -euo pipefail
+shopt -s extglob
 
 PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+ENV_FILE="${PROJECT_ROOT}/.env"
+COMPOSER_FILE="${PROJECT_ROOT}/composer.json"
+MODULES_ROOT="${PROJECT_ROOT}/local/modules"
+SETTINGS_FILE="${PROJECT_ROOT}/local/.settings.php"
+DBCONN_FILE="${PROJECT_ROOT}/local/php_interface/dbconn.php"
+FORCE=false
 
-copy_if_missing() {
-    local source_file="$1"
-    local target_file="$2"
+if [ "${1:-}" = "--force" ]; then
+    FORCE=true
+fi
 
-    if [ -f "${target_file}" ]; then
-        echo "[SKIP] Файл уже существует: ${target_file#${PROJECT_ROOT}/}"
+if [ ! -f "${ENV_FILE}" ]; then
+    echo "[ERROR] Файл .env не найден. Сначала выполните: dl env"
+    exit 1
+fi
+
+if [ -f "${SETTINGS_FILE}" ] && [ "${FORCE}" != true ]; then
+    echo "[ERROR] Файл local/.settings.php уже существует."
+    echo "        Проверьте его вручную или запустите: ./scripts/init --force"
+    exit 1
+fi
+
+trim() {
+    local value="$1"
+    value="${value##+([[:space:]])}"
+    value="${value%%+([[:space:]])}"
+    printf '%s' "${value}"
+}
+
+load_env() {
+    local line key value first_char last_char
+
+    while IFS= read -r line || [ -n "${line}" ]; do
+        line="${line//$'\r'/}"
+        line="$(trim "${line}")"
+
+        if [ -z "${line}" ] || [[ "${line}" == \#* ]]; then
+            continue
+        fi
+
+        if [[ "${line}" == export\ * ]]; then
+            line="${line#export }"
+        fi
+
+        if [[ "${line}" != *=* ]]; then
+            echo "[ERROR] Некорректная строка .env: ${line}"
+            exit 1
+        fi
+
+        key="$(trim "${line%%=*}")"
+        value="$(trim "${line#*=}")"
+
+        if [[ ! "${key}" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]]; then
+            echo "[ERROR] Некорректное имя переменной .env: ${key}"
+            exit 1
+        fi
+
+        first_char="${value:0:1}"
+        last_char="${value: -1}"
+        if { [ "${first_char}" = '"' ] && [ "${last_char}" = '"' ]; } ||
+            { [ "${first_char}" = "'" ] && [ "${last_char}" = "'" ]; }; then
+            value="${value:1:${#value}-2}"
+        fi
+
+        printf -v "${key}" '%s' "${value}"
+        export "${key}"
+    done < "${ENV_FILE}"
+}
+
+is_true() {
+    case "${1:-}" in
+        1|true|TRUE|yes|YES|y|Y|on|ON) return 0 ;;
+        *) return 1 ;;
+    esac
+}
+
+require_service() {
+    local service_title="$1"
+    local env_value="$2"
+    local env_name="$3"
+
+    if ! is_true "${env_value}"; then
+        echo "[ERROR] Для ${service_title} нужно включить ${env_name}=true в .env"
+        exit 1
+    fi
+}
+
+normalize_list() {
+    local value
+    value="$(trim "${1:-}")"
+    value="${value#[}"
+    value="${value%]}"
+    value="${value//,/ }"
+    value="${value//\"/}"
+    value="${value//\'/}"
+
+    for item in ${value}; do
+        printf '%s\n' "${item,,}"
+    done
+}
+
+contains_connection() {
+    local needle="$1"
+    local item
+
+    for item in "${CONNECTION_ITEMS[@]}"; do
+        if [ "${item}" = "${needle}" ]; then
+            return 0
+        fi
+    done
+
+    return 1
+}
+
+add_connection() {
+    local item="$1"
+
+    if ! contains_connection "${item}"; then
+        CONNECTION_ITEMS+=("${item}")
+    fi
+}
+
+normalize_connection_name() {
+    local item="$1"
+
+    case "${item}" in
+        db|database|default)
+            printf '%s\n' "${DB_TYPE}"
+            ;;
+        mysql)
+            if [ "${DB_TYPE}" = "mariadb" ]; then
+                printf 'mariadb\n'
+            else
+                printf 'mysql\n'
+            fi
+            ;;
+        mariadb)
+            printf 'mariadb\n'
+            ;;
+        pgsql|postgres|postgresql)
+            printf 'pgsql\n'
+            ;;
+        redis)
+            printf 'redis\n'
+            ;;
+        memcache|memcached)
+            printf 'memcache\n'
+            ;;
+        *)
+            echo "[ERROR] Неизвестное соединение CONNECTIONS: ${item}" >&2
+            exit 1
+            ;;
+    esac
+}
+
+build_default_connection_block() {
+    cat <<PHP
+            'default' => [
+                'className' => ${DB_CLASS}::class,
+                'host' => '${DB_HOST}',
+                'database' => '${DB_NAME}',
+                'login' => '${DB_USER}',
+                'password' => '${DB_PASSWORD}',
+                ${DB_OPTIONS}
+            ],
+PHP
+}
+
+build_redis_connection_block() {
+    cat <<PHP
+            'redis' => [
+                'className' => RedisConnection::class,
+                'host' => '${REDIS_HOST:-redis}',
+                'port' => ${REDIS_PORT:-6379},
+                'serializer' => \\Redis::SERIALIZER_JSON,
+            ],
+PHP
+}
+
+build_memcache_connection_block() {
+    cat <<PHP
+            'memcache' => [
+                'className' => MemcacheConnection::class,
+                'host' => '${MEMCACHED_HOST:-memcached}',
+                'port' => ${MEMCACHED_PORT:-11211},
+            ],
+PHP
+}
+
+update_composer_name() {
+    if [ ! -f "${COMPOSER_FILE}" ]; then
+        echo "[SKIP] composer.json не найден"
         return
     fi
 
-    if [ ! -f "${source_file}" ]; then
-        echo "[ERROR] Не найден example-файл: ${source_file#${PROJECT_ROOT}/}"
+    if ! command -v php >/dev/null 2>&1; then
+        echo "[WARN] PHP не найден, composer.json не обновлен"
+        return
+    fi
+
+    PROJECT_NAME="${PROJECT_NAME}" COMPOSER_FILE="${COMPOSER_FILE}" php -r '
+        $file = getenv("COMPOSER_FILE");
+        $name = getenv("PROJECT_NAME");
+        $json = json_decode(file_get_contents($file), true, 512, JSON_THROW_ON_ERROR);
+        $json["name"] = $name;
+        file_put_contents(
+            $file,
+            json_encode($json, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) . PHP_EOL
+        );
+    '
+
+    echo "[OK] composer.json: name=${PROJECT_NAME}"
+}
+
+module_class_name() {
+    local module_id="$1"
+    module_id="${module_id//./_}"
+    module_id="${module_id//-/_}"
+    printf '%s\n' "${module_id}"
+}
+
+create_module() {
+    local module_suffix="$1"
+    local module_id class_name module_dir module_version_date
+
+    module_suffix="${module_suffix,,}"
+
+    if [[ ! "${module_suffix}" =~ ^[a-z0-9_]+([.-][a-z0-9_]+)*$ ]]; then
+        echo "[ERROR] Некорректное имя модуля: ${module_suffix}"
         exit 1
     fi
 
-    cp "${source_file}" "${target_file}"
-    echo "[OK] Создан файл: ${target_file#${PROJECT_ROOT}/}"
+    module_id="${PROJECT_VENDOR}.${module_suffix}"
+    class_name="$(module_class_name "${module_id}")"
+    module_dir="${MODULES_ROOT}/${module_id}"
+    module_version_date="$(date +%F)"
+
+    if [ -d "${module_dir}" ]; then
+        echo "[SKIP] Модуль уже существует: local/modules/${module_id}"
+        return
+    fi
+
+    mkdir -p "${module_dir}/install"
+
+    cat > "${module_dir}/include.php" <<PHP
+<?php
+
+defined('B_PROLOG_INCLUDED') || die();
+PHP
+
+    cat > "${module_dir}/install/index.php" <<PHP
+<?php
+
+defined('B_PROLOG_INCLUDED') || die();
+
+class ${class_name} extends CModule
+{
+    public function __construct()
+    {
+        \$this->MODULE_ID = '${module_id}';
+        \$this->MODULE_VERSION = '0.0.1';
+        \$this->MODULE_VERSION_DATE = '${module_version_date}';
+        \$this->MODULE_NAME = '${module_id}';
+        \$this->MODULE_DESCRIPTION = 'Project module ${module_id}';
+        \$this->PARTNER_NAME = '${PROJECT_VENDOR}';
+        \$this->PARTNER_URI = '';
+    }
+
+    public function DoInstall(): void
+    {
+        RegisterModule(\$this->MODULE_ID);
+    }
+
+    public function DoUninstall(): void
+    {
+        UnRegisterModule(\$this->MODULE_ID);
+    }
+}
+PHP
+
+    echo "[OK] Создан модуль: local/modules/${module_id}"
 }
 
-echo "[INFO] Инициализируем локальные файлы проекта..."
+create_engine_module() {
+    mkdir -p "${MODULES_ROOT}"
+    create_module "engine"
+}
 
-copy_if_missing "${PROJECT_ROOT}/.env.example" "${PROJECT_ROOT}/.env"
-copy_if_missing "${PROJECT_ROOT}/local/.settings.php.example" "${PROJECT_ROOT}/local/.settings.php"
-copy_if_missing "${PROJECT_ROOT}/local/.settings_extra.php.example" "${PROJECT_ROOT}/local/.settings_extra.php"
-copy_if_missing "${PROJECT_ROOT}/local/php_interface/dbconn.php.example" "${PROJECT_ROOT}/local/php_interface/dbconn.php"
+load_env
+
+PROJECT_NAME="${PROJECT_NAME:-vendor/bitrix-boilerplate}"
+
+if [[ ! "${PROJECT_NAME}" =~ ^[a-z0-9_]+/[a-z0-9_.-]+$ ]]; then
+    echo "[ERROR] PROJECT_NAME должен быть в формате vendor/name"
+    echo "        vendor: a-z, 0-9, _; name: a-z, 0-9, _, ., -"
+    exit 1
+fi
+
+PROJECT_VENDOR="${PROJECT_NAME%%/*}"
+
+DB_TYPE="mysql"
+DB_CLASS="MysqliConnection"
+DB_HOST="${MYSQL_HOST:-db}"
+DB_NAME="${MYSQL_DATABASE:-db}"
+DB_USER="${MYSQL_USER:-db}"
+DB_PASSWORD="${MYSQL_PASSWORD:-db}"
+DB_OPTIONS="'options' => 2,"
+
+if [ -n "${POSTGRES_VERSION:-}" ]; then
+    DB_TYPE="pgsql"
+    DB_CLASS="PgsqlConnection"
+    DB_HOST="${POSTGRES_HOST:-pgsql}"
+    DB_NAME="${POSTGRES_DB:-db}"
+    DB_USER="${POSTGRES_USER:-db}"
+    DB_PASSWORD="${POSTGRES_PASSWORD:-db}"
+    DB_OPTIONS="'options' => 2,
+                'charset' => 'utf-8',
+                'include_after_connected' => '',"
+elif [ -n "${MARIADB_VERSION:-}" ]; then
+    DB_TYPE="mariadb"
+fi
+
+CACHE="${CACHE:-files}"
+SESSION="${SESSION:-file}"
+CACHE="${CACHE,,}"
+SESSION="${SESSION,,}"
+
+CONNECTION_ITEMS=()
+if [ -n "${CONNECTIONS:-}" ]; then
+    while IFS= read -r connection; do
+        if [ -n "${connection}" ]; then
+            add_connection "$(normalize_connection_name "${connection}")"
+        fi
+    done < <(normalize_list "${CONNECTIONS}")
+else
+    CONNECTION_ITEMS=("${DB_TYPE}")
+fi
+
+if ! contains_connection "${DB_TYPE}"; then
+    echo "[ERROR] CONNECTIONS должен содержать текущую базу данных: ${DB_TYPE}"
+    exit 1
+fi
+
+for connection in "${CONNECTION_ITEMS[@]}"; do
+    case "${connection}" in
+        "${DB_TYPE}"|redis|memcache) ;;
+        *)
+            echo "[ERROR] CONNECTIONS=${connection} не соответствует базе данных из .env: ${DB_TYPE}"
+            exit 1
+            ;;
+    esac
+done
+
+case "${CACHE}" in
+    redis)
+        require_service "кэша Redis" "${REDIS:-}" "REDIS"
+        CACHE_USE="use Bitrix\\Main\\Data\\CacheEngineRedis;"
+        CACHE_BLOCK="'cache' => [
+        'value' => [
+            'type' => [
+                'class_name' => CacheEngineRedis::class,
+                'extension' => 'redis',
+            ],
+            'sid' => \$_SERVER['DOCUMENT_ROOT'] . '#01',
+            'redis' => [
+                'host' => '${REDIS_HOST:-redis}',
+                'port' => ${REDIS_PORT:-6379},
+            ],
+        ],
+    ],"
+        ;;
+    memcache|memcached)
+        require_service "кэша Memcached" "${MEMCACHED:-}" "MEMCACHED"
+        CACHE="memcache"
+        CACHE_USE=""
+        CACHE_BLOCK="'cache' => [
+        'value' => [
+            'type' => 'memcache',
+            'sid' => \$_SERVER['DOCUMENT_ROOT'] . '#01',
+            'memcache' => [
+                'host' => '${MEMCACHED_HOST:-memcached}',
+                'port' => ${MEMCACHED_PORT:-11211},
+            ],
+        ],
+        'readonly' => false,
+    ],"
+        ;;
+    files|file)
+        CACHE="files"
+        CACHE_USE=""
+        CACHE_BLOCK="'cache' => [
+        'value' => [
+            'type' => 'files',
+        ],
+    ],"
+        ;;
+    none)
+        CACHE_USE=""
+        CACHE_BLOCK="'cache' => [
+        'value' => [
+            'type' => 'none',
+        ],
+    ],"
+        ;;
+    *)
+        echo "[ERROR] Неизвестное значение CACHE=${CACHE}"
+        exit 1
+        ;;
+esac
+
+case "${SESSION}" in
+    redis)
+        require_service "сессий Redis" "${REDIS:-}" "REDIS"
+        SESSION_HANDLER="'type' => 'redis',
+                                'host' => '${REDIS_HOST:-redis}',
+                                'port' => ${REDIS_PORT:-6379},"
+        ;;
+    memcache|memcached)
+        require_service "сессий Memcached" "${MEMCACHED:-}" "MEMCACHED"
+        SESSION="memcache"
+        SESSION_HANDLER="'type' => 'memcache',
+                                'host' => '${MEMCACHED_HOST:-memcached}',
+                                'port' => ${MEMCACHED_PORT:-11211},"
+        ;;
+    database)
+        SESSION_HANDLER="'type' => 'database',"
+        ;;
+    files|file)
+        SESSION="file"
+        SESSION_HANDLER="'type' => 'file',"
+        ;;
+    *)
+        echo "[ERROR] Неизвестное значение SESSION=${SESSION}"
+        exit 1
+        ;;
+esac
+
+if contains_connection redis; then
+    require_service "соединения Redis" "${REDIS:-}" "REDIS"
+fi
+
+if contains_connection memcache; then
+    require_service "соединения Memcached" "${MEMCACHED:-}" "MEMCACHED"
+fi
+
+CONNECTIONS_BLOCK="$(build_default_connection_block)"
+
+if contains_connection redis; then
+    CONNECTIONS_BLOCK+=$'\n'"$(build_redis_connection_block)"
+fi
+
+if contains_connection memcache; then
+    CONNECTIONS_BLOCK+=$'\n'"$(build_memcache_connection_block)"
+fi
+
+echo "[INFO] Инициализируем проект: ${PROJECT_NAME}"
+echo "[INFO] База данных: ${DB_TYPE}"
+echo "[INFO] Кэш: ${CACHE}"
+echo "[INFO] Сессии: ${SESSION}"
+echo "[INFO] Соединения: ${CONNECTION_ITEMS[*]}"
+
+update_composer_name
+create_engine_module
+
+echo "[INFO] Генерируем local/.settings.php по .env..."
+
+cat > "${SETTINGS_FILE}" <<PHP
+<?php
+
+${CACHE_USE}
+use Bitrix\\Main\\Data\\MemcacheConnection;
+use Bitrix\\Main\\Data\\RedisConnection;
+use Bitrix\\Main\\DB\\MysqliConnection;
+use Bitrix\\Main\\DB\\PgsqlConnection;
+
+return [
+    'connections' => [
+        'value' => [
+${CONNECTIONS_BLOCK}
+        ],
+        'readonly' => true,
+    ],
+    'exception_handling' => [
+        'value' => [
+            'debug' => ${APP_DEBUG:-false},
+            'handled_errors_types' => E_ALL & ~E_NOTICE & ~E_USER_NOTICE,
+            'exception_errors_types' => E_ALL
+                & ~E_NOTICE
+                & ~E_WARNING
+                & ~E_USER_WARNING
+                & ~E_USER_NOTICE
+                & ~E_COMPILE_WARNING
+                & ~E_DEPRECATED,
+            'ignore_silence' => false,
+            'assertion_throws_exception' => true,
+            'assertion_error_type' => E_USER_ERROR,
+            'log' => [
+                'settings' => [
+                    'file' => '/logs/error.log',
+                    'log_size' => 1000000,
+                ],
+            ],
+        ],
+        'readonly' => false,
+    ],
+    ${CACHE_BLOCK}
+    'session' => [
+        'value' => [
+            'mode' => 'default',
+            'handlers' => [
+                'general' => [
+                    ${SESSION_HANDLER}
+                ],
+            ],
+        ],
+    ],
+    'routing' => [
+        'value' => [
+            'config' => ['api.php'],
+        ],
+    ],
+];
+PHP
+
+if [ ! -f "${DBCONN_FILE}" ]; then
+    cp "${PROJECT_ROOT}/local/php_interface/dbconn.php.example" "${DBCONN_FILE}"
+    echo "[OK] Создан файл: local/php_interface/dbconn.php"
+fi
 
 echo "[SUCCESS] Инициализация завершена."

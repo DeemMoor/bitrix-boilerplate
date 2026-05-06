@@ -1,71 +1,52 @@
 # Bitrix Boilerplate
 
-Production-ready болерплейт для проектов на 1C-Битрикс.
-
-## Структура
-
-```text
-bitrix/          ядро Битрикс, не хранится в git
-upload/          пользовательские файлы, не хранятся в git
-local/           проектный код, модули, шаблоны и настройки
-public/          document root веб-сервера
-public/bitrix -> ../bitrix
-public/local  -> ../local
-public/upload -> ../upload
-```
+Boilerplate для проектов на 1C-Битрикс.
 
 ## Установка
 
+Создать проект из репозитория и сразу скачать установщик Битрикс:
+
 ```bash
-./scripts/init
-composer install
+bash <(curl -fsSL https://raw.githubusercontent.com/DeemMoor/bitrix-boilerplate/master/scripts/install.sh) --repo-url https://github.com/DeemMoor/bitrix-boilerplate.git --dir my-project
 ```
 
-Document root веб-сервера должен смотреть в `public`.
+После установки перейдите в проект:
 
-Реальные файлы `/local/.settings.php`, `/local/.settings_extra.php` и `/local/php_interface/dbconn.php` не хранятся в git. Для них есть example-файлы без production-секретов.
+```bash
+cd my-project
+```
+
+Создайте `.env`:
+
+```bash
+dl env
+```
+
+После генерации `.env` отредактируйте нужные опции:
+
+- `PROJECT_NAME=vendor/name` - имя проекта для `composer.json` и модуля `vendor.engine`.
+- `PHP_MODULES="opcache redis memcached"` - PHP-модули.
+- `MYSQL_VERSION=8.4` - база по умолчанию, MySQL 8.4 LTS.
+- `POSTGRES_VERSION` или `MARIADB_VERSION` - если нужна другая база.
+- `REDIS=true`, `MEMCACHED=true` - дополнительные сервисы.
+- `CACHE=redis` - кэш: `redis`, `memcache`, `files`, `none`.
+- `SESSION=database` - сессии: `redis`, `memcache`, `database`, `file`.
+- `CONNECTIONS=[mysql,redis]` - соединения: `mysql`, `mariadb`, `pgsql`, `redis`, `memcache`.
+
+Если `CONNECTIONS` не указан, будет создано только соединение с базой данных из `.env`.
+
+```bash
+./scripts/init
+dl up
+dl exec composer install
+```
+
+`./scripts/init` создает `local/.settings.php`, `local/php_interface/dbconn.php`, обновляет `composer.json` и создает модуль `vendor.engine`. Существующие файлы и модуль не перезаписываются.
+
+Document root веб-сервера: `public`.
 
 ## Установщик Битрикс
-
-Скачать официальный установщик Битрикс можно из корня проекта:
 
 ```bash
 ./scripts/setup
 ```
-
-Скрипт сохраняет файл в `public/bitrixsetup.php`. Этот файл не хранится в git.
-
-## Инициализация локальных файлов
-
-```bash
-./scripts/init
-```
-
-Скрипт создает локальные файлы из example-шаблонов, если их еще нет:
-
-- `.env`
-- `local/.settings.php`
-- `local/.settings_extra.php`
-- `local/php_interface/dbconn.php`
-
-Существующие файлы скрипт не перезаписывает.
-
-## Локальный запуск через DL
-
-Проект рассчитан на запуск через [Deploy Local](https://local-deploy.github.io/).
-
-```bash
-dl service up
-dl env
-dl up
-```
-
-В `.env.example` зафиксированы переменные, которые понимает DL:
-
-- `DOCUMENT_ROOT=/var/www/html/public`
-- `PHP_VERSION=8.4-fpm`
-- `MYSQL_VERSION=8.0`
-- `REDIS=true`
-- `MEMCACHED=true`
-
-Для установленного локально `DL v1.1.3` доступны PHP-образы `7.3`, `7.4`, `8.0`, `8.1`, `8.2`, `8.3`, `8.4` в вариантах `fpm` и `apache`. MySQL в локальном шаблоне DL явно перечислен как `5.7`, `8.0`, `9.0`. PostgreSQL задается переменной `POSTGRES_VERSION` как тег официального образа `postgres`; по умолчанию шаблон DL использует `15`.

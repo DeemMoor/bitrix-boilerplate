@@ -24,6 +24,12 @@ bash <(curl -fsSL https://raw.githubusercontent.com/DeemMoor/bitrix-boilerplate/
 https://example.com/bitrixsetup.php
 ```
 
+После завершения установки Битрикс установите Composer-зависимости:
+
+```bash
+composer install --no-dev --optimize-autoloader
+```
+
 ## Локальная разработка
 
 DL нужен только локально. Инструкция по установке: https://local-deploy.github.io/ru/getting-started/install

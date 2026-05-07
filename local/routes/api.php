@@ -3,7 +3,9 @@
 use Bitrix\Main\ModuleManager;
 use Bitrix\Main\Routing\RoutingConfigurator;
 
-require_once $_SERVER['DOCUMENT_ROOT'] . '/../vendor/autoload.php';
+if (function_exists('project_require_composer_autoload')) {
+    project_require_composer_autoload(__DIR__);
+}
 
 $getRoutePaths = static function (): array {
     foreach (ModuleManager::getInstalledModules() as $module) {

@@ -7,7 +7,11 @@ usage() {
 Usage:
   ./scripts/install.sh --repo-url <git_repo_url> --dir <project_dir> [--public-dir <web_root_dir>]
 
-Create a new project from the boilerplate repository and run scripts/setup.
+Drop the boilerplate files into the target directory. Bitrix must already be
+installed (or be installed afterwards) — this script no longer downloads
+bitrixsetup.php. Use scripts/setup if you need to fetch the installer.
+
+After bootstrap: copy .env.example to .env, edit it, then run ./scripts/init.
 
 Options:
   --repo-url URL   Git repository URL of the boilerplate repository.
@@ -160,10 +164,5 @@ cp -R "$TMP_DIR/repo/." "$TARGET_DIR/"
 rm -rf "$TARGET_DIR/.git"
 prepare_public_dir
 
-echo "Downloading Bitrix installer..."
-(
-    cd "$TARGET_DIR"
-    ./scripts/setup --public-dir "$PUBLIC_DIR"
-)
-
 echo "Done. Project installed to $TARGET_DIR."
+echo "Next: copy .env.example to .env, edit it, then run ./scripts/init."

@@ -16,6 +16,11 @@
         "symfony/var-dumper": "^7.4",
         "phpunit/phpunit": "^13.1"
     },
+    "autoload": {
+        "psr-4": {
+            "Vendor\\Engine\\": "local/modules/vendor.engine/lib"
+        }
+    },
     "autoload-dev": {
         "psr-4": {
             "Tests\\": "tests/"

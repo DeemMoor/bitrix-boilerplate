@@ -326,6 +326,73 @@ elif [ -n "${MARIADB_VERSION:-}" ]; then
     DB_TYPE="mariadb"
 fi
 
+apply_bitrix_settings_override() {
+    local bitrix_settings="${PROJECT_ROOT}/bitrix/.settings.php"
+    local app_env="${APP_ENV:-local}"
+    local result class
+
+    if [ "${app_env,,}" = "local" ]; then
+        return
+    fi
+
+    if [ ! -f "${bitrix_settings}" ]; then
+        echo "[ERROR] APP_ENV=${app_env}, но bitrix/.settings.php не найден."
+        echo "        Сначала установите Битрикс или поменяйте APP_ENV=local в .env."
+        exit 1
+    fi
+
+    if ! command -v php >/dev/null 2>&1; then
+        echo "[ERROR] PHP не найден, не могу прочитать bitrix/.settings.php"
+        exit 1
+    fi
+
+    echo "[INFO] Беру креды БД из bitrix/.settings.php (APP_ENV=${app_env})"
+
+    result="$(BITRIX_SETTINGS_FILE="${bitrix_settings}" php -r '
+        $file = getenv("BITRIX_SETTINGS_FILE");
+        $settings = @include $file;
+        if (!is_array($settings)) {
+            fwrite(STDERR, "bitrix/.settings.php не вернул массив\n");
+            exit(1);
+        }
+        $default = $settings["connections"]["value"]["default"] ?? null;
+        if (!is_array($default)) {
+            fwrite(STDERR, "В bitrix/.settings.php нет connections.value.default\n");
+            exit(1);
+        }
+        foreach (["className", "host", "database", "login", "password"] as $k) {
+            $v = (string)($default[$k] ?? "");
+            $v = str_replace(["\r", "\n"], ["", "\\n"], $v);
+            echo $k . "=" . $v . "\n";
+        }
+    ')"
+
+    while IFS='=' read -r key value; do
+        case "${key}" in
+            className) class="${value}" ;;
+            host) DB_HOST="${value}" ;;
+            database) DB_NAME="${value}" ;;
+            login) DB_USER="${value}" ;;
+            password) DB_PASSWORD="${value}" ;;
+        esac
+    done <<< "${result}"
+
+    case "${class}" in
+        *Pgsql*)
+            DB_TYPE="pgsql"
+            DB_CLASS="PgsqlConnection"
+            DB_OPTIONS="'options' => 2,
+                'charset' => 'utf-8',
+                'include_after_connected' => '',"
+            ;;
+        *Mysqli*)
+            DB_CLASS="MysqliConnection"
+            ;;
+    esac
+}
+
+apply_bitrix_settings_override
+
 CACHE="${CACHE:-files}"
 SESSION="${SESSION:-file}"
 CACHE="${CACHE,,}"

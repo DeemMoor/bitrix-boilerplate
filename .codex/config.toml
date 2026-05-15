@@ -1,0 +1,19 @@
+#:schema https://developers.openai.com/codex/config-schema.json
+
+# Project-scoped Codex defaults. Codex loads this file only after the project is trusted.
+model = "gpt-5.5"
+model_reasoning_effort = "high"
+model_verbosity = "medium"
+personality = "pragmatic"
+
+sandbox_mode = "workspace-write"
+approval_policy = "on-request"
+
+[features]
+fast_mode = true
+shell_snapshot = true
+multi_agent = true
+
+[[skills.config]]
+path = ".codex/skills/project"
+enabled = true

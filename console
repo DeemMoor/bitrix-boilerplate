@@ -1,0 +1,52 @@
+#!/usr/bin/env php
+<?php
+
+define('CONSOLE_START', microtime(true));
+
+// include bitrix
+$_SERVER['DOCUMENT_ROOT'] = realpath(__DIR__) . '/public';
+
+try {
+    require_once $_SERVER['DOCUMENT_ROOT'] . '/bitrix/modules/main/cli/bootstrap.php';
+} catch (Exception $e) {
+    echo print_r($e->getMessage(), true) . "\n";
+    exit(1);
+}
+
+set_time_limit(900);
+
+// include composer autoload
+require __DIR__ . '/vendor/autoload.php';
+
+// initialize symfony
+use Bitrix\Main\Loader;
+use Bitrix\Main\LoaderException;
+use Symfony\Component\Console\Application;
+use Vendor\Engine\Command\PingCommand;
+
+$app = new Application();
+
+//----------------------WRITE HERE------------------------//
+// register module
+try {
+    Loader::includeModule('vendor.engine');
+} catch (LoaderException $e) {
+    fwrite(STDERR, '[WARN] Модуль vendor.engine не подключён: ' . $e->getMessage() . "\n");
+}
+
+/**
+ * Commands
+ */
+
+// php console ping
+$app->add(new PingCommand());
+
+//----------------------END WRITE------------------------//
+
+// run console
+try {
+    $app->run();
+} catch (Exception $e) {
+    echo print_r($e->getMessage(), true) . "\n";
+    exit(1);
+}

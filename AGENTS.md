@@ -17,6 +17,26 @@
 
 ## Выполнение команд
 
+- Все команды проекта (PHP, Composer, phinx, консольные команды) выполнять внутри Docker-контейнера `bitrix-boilerplate_php` (имя по умолчанию: `HOST_NAME` из `.env` + суффикс `_php`).
+- Формат для shell-команд:
+
+  ```bash
+  docker exec -it bitrix-boilerplate_php <command>
+  ```
+
+- Для неинтерактивных команд — без `-it`:
+
+  ```bash
+  docker exec bitrix-boilerplate_php <command>
+  ```
+
+- Генерация OpenAPI документации: 
+
+  ```bash
+  docker exec <название контейнера> vendor/bin/bitrixoa --bitrix-generate
+  ```
+  сканирует аннотации в `local/modules/`, перезаписывает `local/bitrixoa.yaml`.
+
 - Перед изменениями проверять состояние рабочей копии через `git status`.
 - Для поиска использовать `rg`, если он доступен.
 - Для PHP-синтаксиса использовать `php -l <file>`.

@@ -1,0 +1,28 @@
+openapi: 3.0.0
+info:
+  title: 'Project API'
+  description: 'API документация проекта'
+  version: 1.0.0
+paths:
+  /: {  }
+  /api/test:
+    get:
+      tags:
+        - Test
+      summary: 'Тестовый эндпоинт для проверки работоспособности API'
+      operationId: 49ac4e908178ef1740e71056021d8f07
+      responses:
+        '200':
+          description: 'Эндпоинт работает'
+          content:
+            application/json:
+              schema:
+                required:
+                  - status
+                  - message
+                  - timestamp
+                properties:
+                  status: { type: string, example: ok }
+                  message: { type: string, example: 'vendor.engine test endpoint works' }
+                  timestamp: { type: string, format: date-time, example: '2026-05-15T12:00:00+00:00' }
+                type: object

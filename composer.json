@@ -9,8 +9,8 @@
         "robmorgan/phinx": "^0.16.11",
         "monolog/monolog": "^3.10",
         "symfony/console": "^8.0",
-        "webpractik/bitrixoa": "^1.2",
-        "zircote/swagger-php": "^3.3"
+        "webpractik/bitrixoa": "@dev",
+        "zircote/swagger-php": "^6.0"
     },
     "require-dev": {
         "symfony/var-dumper": "^7.4",
@@ -18,7 +18,8 @@
     },
     "autoload": {
         "psr-4": {
-            "Vendor\\Engine\\": "local/modules/vendor.engine/lib"
+            "Vendor\\Engine\\": "local/modules/vendor.engine/lib",
+            "Loghouse\\Logger\\": "local/modules/loghouse.logger/lib"
         }
     },
     "autoload-dev": {
@@ -34,5 +35,14 @@
         "allow-plugins": {
             "php-http/discovery": true
         }
-    }
+    },
+    "repositories": [
+        {
+            "type": "path",
+            "url": "packages/bitrixoa",
+            "options": {
+                "symlink": true
+            }
+        }
+    ]
 }

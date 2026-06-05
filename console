@@ -21,8 +21,10 @@ require __DIR__ . '/vendor/autoload.php';
 // initialize symfony
 use Bitrix\Main\Loader;
 use Bitrix\Main\LoaderException;
-use Symfony\Component\Console\Application;
 use Vendor\Engine\Command\PingCommand;
+use Vendor\Engine\Command\GenerateApiDocCommand;
+use Loghouse\Logger\Cli\TestLogCommand;
+use Symfony\Component\Console\Application;
 
 $app = new Application();
 
@@ -34,12 +36,24 @@ try {
     fwrite(STDERR, '[WARN] Модуль vendor.engine не подключён: ' . $e->getMessage() . "\n");
 }
 
+try {
+    Loader::includeModule('loghouse.logger');
+} catch (LoaderException $e) {
+    fwrite(STDERR, '[WARN] Модуль loghouse.logger не подключён: ' . $e->getMessage() . "\n");
+}
+
 /**
  * Commands
  */
 
 // php console ping
-$app->add(new PingCommand());
+$app->addCommand(new PingCommand());
+
+// php console api:doc:generate
+$app->addCommand(new GenerateApiDocCommand());
+
+// php console logger:test
+$app->addCommand(new TestLogCommand());
 
 //----------------------END WRITE------------------------//
 

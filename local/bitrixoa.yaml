@@ -3,8 +3,53 @@ info:
   title: 'Project API'
   description: 'API документация проекта'
   version: 1.0.0
+servers:
+  -
+    url: /
+    description: 'Текущий хост'
 paths:
-  /: {  }
+  /api/example:
+    get:
+      tags:
+        - Example
+      summary: 'Список активных записей Example'
+      operationId: 351a11957bb977dffb9d2719b8b7e6d1
+      responses:
+        '200':
+          description: 'Список записей'
+          content:
+            application/json:
+              schema:
+                properties:
+                  items: { type: array, items: { $ref: '#/components/schemas/ExampleItem' } }
+                type: object
+        '500':
+          description: 'Внутренняя ошибка сервера'
+  '/api/example/{id}':
+    get:
+      tags:
+        - Example
+      summary: 'Получение записи Example по ID'
+      operationId: 19571b3ecfe261cef4cc1abe9b69ba99
+      parameters:
+        -
+          name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+            example: 1
+      responses:
+        '200':
+          description: 'Запись Example'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ExampleItem'
+        '404':
+          description: 'Запись не найдена'
+        '500':
+          description: 'Внутренняя ошибка сервера'
   /api/test:
     get:
       tags:
@@ -26,3 +71,43 @@ paths:
                   message: { type: string, example: 'vendor.engine test endpoint works' }
                   timestamp: { type: string, format: date-time, example: '2026-05-15T12:00:00+00:00' }
                 type: object
+components:
+  schemas:
+    ExampleItem:
+      description: 'Запись демонстрационной сущности Example'
+      required:
+        - id
+        - title
+        - active
+      properties:
+        id:
+          type: integer
+          example: 1
+        title:
+          type: string
+          example: 'Пример записи'
+        code:
+          type: string
+          example: example-code
+          nullable: true
+        active:
+          type: boolean
+          example: true
+        createdAt:
+          type: string
+          format: date-time
+          example: '2026-06-04T12:00:00+00:00'
+          nullable: true
+        updatedAt:
+          type: string
+          format: date-time
+          example: '2026-06-04T12:30:00+00:00'
+          nullable: true
+      type: object
+tags:
+  -
+    name: Example
+    description: 'Демонстрационная сущность Example'
+  -
+    name: Test
+    description: 'Проверка работоспособности API'

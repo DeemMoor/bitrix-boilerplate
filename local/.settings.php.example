@@ -39,7 +39,13 @@ return [
             'assertion_throws_exception' => true,
             'assertion_error_type' => E_USER_ERROR,
             'log' => [
+                // Маршрутизируем штатную обработку ошибок Bitrix в loghouse.logger
+                // (канал "bitrix" -> файл/БД/Telegram по настройкам модуля).
+                // Требует установленного модуля loghouse.logger; иначе закомментируйте
+                // class_name — и будет использован штатный файловый лог ниже.
+                'class_name' => '\\Loghouse\\Logger\\Bridge\\BitrixExceptionLog',
                 'settings' => [
+                    'channel' => 'bitrix',
                     'file' => '/logs/error.log',
                     'log_size' => 1000000,
                 ],

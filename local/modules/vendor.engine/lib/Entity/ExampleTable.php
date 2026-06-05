@@ -4,11 +4,11 @@ declare(strict_types=1);
 
 namespace Vendor\Engine\Entity;
 
+use Bitrix\Main\Type\DateTime;
 use Bitrix\Main\ORM\Fields\BooleanField;
 use Bitrix\Main\ORM\Fields\DatetimeField;
 use Bitrix\Main\ORM\Fields\IntegerField;
 use Bitrix\Main\ORM\Fields\StringField;
-use Bitrix\Main\Type\DateTime;
 
 class ExampleTable extends \Bitrix\Main\ORM\Data\DataManager
 {

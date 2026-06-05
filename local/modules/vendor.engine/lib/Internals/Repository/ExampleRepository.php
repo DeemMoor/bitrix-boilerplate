@@ -5,17 +5,20 @@ declare(strict_types=1);
 namespace Vendor\Engine\Internals\Repository;
 
 use Vendor\Engine\Entity\ExampleTable;
+use Vendor\Engine\DTO\ExampleReadModel;
 
 class ExampleRepository implements ExampleRepositoryInterface
 {
-    public function findById(int $id): ?array
+    public function findById(int $id): ?ExampleReadModel
     {
-        return ExampleTable::getByPrimary($id)->fetch() ?: null;
+        $row = ExampleTable::getByPrimary($id)->fetch();
+
+        return $row ? ExampleReadModel::fromArray($row) : null;
     }
 
     public function findAllActive(): array
     {
-        return ExampleTable::getList([
+        $rows = ExampleTable::getList([
             'filter' => [
                 '=ACTIVE' => 'Y',
             ],
@@ -23,6 +26,8 @@ class ExampleRepository implements ExampleRepositoryInterface
                 'ID' => 'ASC',
             ],
         ])->fetchAll();
+
+        return array_map(static fn(array $row): ExampleReadModel => ExampleReadModel::fromArray($row), $rows);
     }
 
     public function create(array $data): int

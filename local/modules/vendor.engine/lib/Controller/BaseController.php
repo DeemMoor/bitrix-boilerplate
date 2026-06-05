@@ -5,12 +5,9 @@ namespace Vendor\Engine\Controller;
 use Bitrix\Main\Engine\Controller;
 
 /**
- * @OA\Info(
- *     description="API документация проекта",
- *     version="1.0.0",
- *     title="Project API",
- * )
- * @OA\PathItem(path="/")
+ * Базовый контроллер модуля. Глобальные метаданные OpenAPI вынесены в
+ * {@see \Vendor\Engine\OpenApi\ApiSpec} (атрибуты), отдельные эндпоинты
+ * описываются атрибутами/аннотациями на контроллерах-наследниках.
  */
 class BaseController extends Controller
 {

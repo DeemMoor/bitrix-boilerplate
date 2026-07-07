@@ -6,6 +6,7 @@ namespace Vendor\Engine\Internals\Repository;
 
 use Vendor\Engine\Entity\ExampleTable;
 use Vendor\Engine\DTO\ExampleReadModel;
+use Vendor\Engine\Internals\Exception\EngineException;
 
 class ExampleRepository implements ExampleRepositoryInterface
 {
@@ -33,17 +34,26 @@ class ExampleRepository implements ExampleRepositoryInterface
     public function create(array $data): int
     {
         $result = ExampleTable::add($data);
+        if (!$result->isSuccess()) {
+            throw new EngineException('Не удалось создать Example: ' . implode('; ', $result->getErrorMessages()));
+        }
 
         return (int)$result->getId();
     }
 
     public function update(int $id, array $data): void
     {
-        ExampleTable::update($id, $data);
+        $result = ExampleTable::update($id, $data);
+        if (!$result->isSuccess()) {
+            throw new EngineException(sprintf('Не удалось обновить Example #%d: %s', $id, implode('; ', $result->getErrorMessages())));
+        }
     }
 
     public function delete(int $id): void
     {
-        ExampleTable::delete($id);
+        $result = ExampleTable::delete($id);
+        if (!$result->isSuccess()) {
+            throw new EngineException(sprintf('Не удалось удалить Example #%d: %s', $id, implode('; ', $result->getErrorMessages())));
+        }
     }
 }

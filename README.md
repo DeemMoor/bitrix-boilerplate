@@ -37,7 +37,7 @@
    dl up
    ```
 
-4. Получите ядро Битрикса и базу — один из вариантов:
+4. Установите ядро Битрикса и создайте базу:
 
    **Есть прод-сервер** — скачайте ядро и дамп базы с сервера из `.env`:
 
@@ -45,9 +45,17 @@
    dl deploy
    ```
 
-   **Сервера ещё нет** — установите Битрикс: положите `bitrixsetup.php` в `public/`, откройте `https://<host>/bitrixsetup.php` в браузере и пройдите установку. Креды БД берите из `.env`.
+   **Сервера ещё нет** — установите Битрикс: скачайте [bitrixsetup.php](https://www.1c-bitrix.ru/download/scripts/bitrixsetup.php) в `public/`, откройте `https://<host>/bitrixsetup.php` в браузере и пройдите установку. Креды БД берите из `.env`.
 
-5. Инициализируйте проект:
+5. (Опционально) Удалите демо-срез. Болванка идёт с рабочим примером слоёной архитектуры в модуле `vendor.engine`: сущность `Example`, эндпоинты `/api/example` и `/api/test`, команда `ping`. Оставьте как образец или удалите, чтобы демо не попало в ваш репозиторий. Запускать нужно **до** `init` — он переименовывает `vendor.engine`, а скрипт очистки завязан на это имя:
+
+   ```bash
+   dl exec php scripts/strip-demo.php
+   ```
+
+   Останется чистый каркас модуля (слои-папки с `.gitkeep`, пустой `ServiceProvider`, только эндпоинт `/api/doc`).
+
+6. Инициализируйте проект:
 
    ```bash
    ./scripts/init
@@ -55,7 +63,7 @@
 
    Скрипт генерирует `local/.settings.php` и `local/php_interface/dbconn.php`, обновляет имя в `composer.json` и переименовывает shipped-модуль `vendor.engine` в `<vendor>.engine` (каталог, module ID, namespace, DI-идентификаторы, psr-4). После переименования обнови автозагрузку: `composer dump-autoload`. Повторный запуск ничего не ломает — если модуль уже переименован, шаг пропускается. На локалке (`APP_ENV=local`) креды БД берутся из `.env`.
 
-6. Поставьте Composer-зависимости:
+7. Поставьте Composer-зависимости:
 
    ```bash
    dl exec composer install
@@ -105,7 +113,14 @@ Document root веб-сервера: `public`.
      --repo-url https://github.com/DeemMoor/bitrix-boilerplate.git --dir app --public-dir ../public_html
    ```
 
-3. Скопируйте `.env.example` в `.env` и отредактируйте. Выставьте `APP_ENV=production` (любое значение кроме `local`). Креды БД дублировать в `.env` не нужно — на сервере `init` читает их из `bitrix/.settings.php`.
+3. Создайте `.env` и откройте на редактирование:
+
+   ```bash
+   cp .env.example .env
+   nano .env
+   ```
+
+   Выставьте `APP_ENV=production` (любое значение кроме `local`) и `PROJECT_NAME=vendor/name` под свой проект. Креды БД дублировать в `.env` не нужно — на сервере `init` читает их из `bitrix/.settings.php`.
 4. Запустите инициализацию:
 
    ```bash

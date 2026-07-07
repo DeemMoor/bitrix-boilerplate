@@ -572,6 +572,25 @@ if contains_connection memcache; then
     CONNECTIONS_BLOCK+=$'\n'"$(build_memcache_connection_block)"
 fi
 
+# Собираем только те use-импорты, которые реально используются в сгенерированном
+# файле: класс активной БД + классы включённых соединений (+ CacheEngineRedis из CACHE_USE).
+USE_STATEMENTS=()
+if [ -n "${CACHE_USE}" ]; then
+    USE_STATEMENTS+=("${CACHE_USE}")
+fi
+if [ "${DB_CLASS}" = "PgsqlConnection" ]; then
+    USE_STATEMENTS+=('use Bitrix\Main\DB\PgsqlConnection;')
+else
+    USE_STATEMENTS+=('use Bitrix\Main\DB\MysqliConnection;')
+fi
+if contains_connection redis; then
+    USE_STATEMENTS+=('use Bitrix\Main\Data\RedisConnection;')
+fi
+if contains_connection memcache; then
+    USE_STATEMENTS+=('use Bitrix\Main\Data\MemcacheConnection;')
+fi
+USE_BLOCK="$(printf '%s\n' "${USE_STATEMENTS[@]}")"
+
 echo "[INFO] Инициализируем проект: ${PROJECT_NAME}"
 echo "[INFO] База данных: ${DB_TYPE}"
 echo "[INFO] Кэш: ${CACHE}"
@@ -586,11 +605,7 @@ echo "[INFO] Генерируем local/.settings.php по .env..."
 cat > "${SETTINGS_FILE}" <<PHP
 <?php
 
-${CACHE_USE}
-use Bitrix\\Main\\Data\\MemcacheConnection;
-use Bitrix\\Main\\Data\\RedisConnection;
-use Bitrix\\Main\\DB\\MysqliConnection;
-use Bitrix\\Main\\DB\\PgsqlConnection;
+${USE_BLOCK}
 
 return [
     'connections' => [
@@ -615,7 +630,9 @@ ${CONNECTIONS_BLOCK}
             'assertion_error_type' => E_USER_ERROR,
             'log' => [
                 'settings' => [
-                    'file' => '/logs/error.log',
+                    // Путь с ведущим "/" Битрикс считает абсолютным путём ФС,
+                    // поэтому строим его от корня проекта (local/..).
+                    'file' => dirname(__DIR__) . '/logs/error.log',
                     'log_size' => 1000000,
                 ],
             ],

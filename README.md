@@ -26,7 +26,7 @@
 
    Основные параметры:
 
-   - `PROJECT_NAME=vendor/name` — имя проекта для `composer.json` и модуля `vendor.engine`.
+   - `PROJECT_NAME=vendor/name` — имя проекта для `composer.json`; из `vendor` собирается имя engine-модуля (`vendor.engine` → `<vendor>.engine`) и его namespace (`Vendor\Engine` → `<Vendor>\Engine`).
    - `CATALOG_SRV`, `USER_SRV`, `PORT_SRV`, `SERVER` — доступ к прод-серверу для `dl deploy`.
    - `MYSQL_VERSION`, `PHP_MODULES`, `CACHE`, `SESSION`, `CONNECTIONS`, `REDIS`, `MEMCACHED` — окружение и сервисы.
    - `EXCLUDED_TABLES`, `EXCLUDED_FILES` — что не тянуть при `dl deploy`.
@@ -53,7 +53,7 @@
    ./scripts/init
    ```
 
-   Скрипт генерирует `local/.settings.php` и `local/php_interface/dbconn.php`, обновляет имя в `composer.json` и создаёт модуль `vendor.engine`. Существующие файлы и модуль не перезаписываются. На локалке (`APP_ENV=local`) креды БД берутся из `.env`.
+   Скрипт генерирует `local/.settings.php` и `local/php_interface/dbconn.php`, обновляет имя в `composer.json` и переименовывает shipped-модуль `vendor.engine` в `<vendor>.engine` (каталог, module ID, namespace, DI-идентификаторы, psr-4). После переименования обнови автозагрузку: `composer dump-autoload`. Повторный запуск ничего не ломает — если модуль уже переименован, шаг пропускается. На локалке (`APP_ENV=local`) креды БД берутся из `.env`.
 
 6. Поставьте Composer-зависимости:
 

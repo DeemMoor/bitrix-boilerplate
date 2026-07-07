@@ -259,78 +259,119 @@ update_composer_name() {
     echo "[OK] composer.json: name=${PROJECT_NAME}"
 }
 
-module_class_name() {
-    local module_id="$1"
-    module_id="${module_id//./_}"
-    module_id="${module_id//-/_}"
-    printf '%s\n' "${module_id}"
+# StudlyCase из vendor-части: focal -> Focal, my_company -> MyCompany.
+# Используется как корень PHP-namespace модуля.
+studly() {
+    local input="$1" out="" part
+    local IFS='_'
+    read -ra _parts <<< "${input}"
+    for part in "${_parts[@]}"; do
+        [ -n "${part}" ] && out+="${part^}"
+    done
+    printf '%s' "${out}"
 }
 
-create_module() {
-    local module_suffix="$1"
-    local module_id class_name module_dir module_version_date
+# Переименовывает shipped-модуль vendor.engine в <vendor>.engine:
+# каталог, module ID, DI-идентификаторы, install-класс, PHP-namespace и
+# psr-4 в composer.json. Демо-код внутри сохраняется — просто становится «твоим».
+rename_engine_module() {
+    local src_id="vendor.engine"
+    local dst_id="${PROJECT_VENDOR}.engine"
+    local src_dir="${MODULES_ROOT}/${src_id}"
+    local dst_dir="${MODULES_ROOT}/${dst_id}"
+    local ns_vendor
+    ns_vendor="$(studly "${PROJECT_VENDOR}")"
 
-    module_suffix="${module_suffix,,}"
-
-    if [[ ! "${module_suffix}" =~ ^[a-z0-9_]+([.-][a-z0-9_]+)*$ ]]; then
-        echo "[ERROR] Некорректное имя модуля: ${module_suffix}"
-        exit 1
-    fi
-
-    module_id="${PROJECT_VENDOR}.${module_suffix}"
-    class_name="$(module_class_name "${module_id}")"
-    module_dir="${MODULES_ROOT}/${module_id}"
-    module_version_date="$(date +%F)"
-
-    if [ -d "${module_dir}" ]; then
-        echo "[SKIP] Модуль уже существует: local/modules/${module_id}"
+    if [ "${dst_id}" = "${src_id}" ]; then
+        # PROJECT_VENDOR=vendor — переименовывать нечего
         return
     fi
 
-    mkdir -p "${module_dir}/install"
+    if [ ! -d "${src_dir}" ]; then
+        if [ -d "${dst_dir}" ]; then
+            echo "[SKIP] Модуль уже переименован: local/modules/${dst_id}"
+        else
+            echo "[WARN] Модуль ${src_id} не найден, пропускаю переименование"
+        fi
+        return
+    fi
 
-    cat > "${module_dir}/include.php" <<PHP
+    if [ -d "${dst_dir}" ]; then
+        echo "[ERROR] Целевой модуль уже существует: local/modules/${dst_id}."
+        echo "        Удалите его вручную, чтобы не потерять данные, и запустите init снова."
+        exit 1
+    fi
+
+    if [ -z "${PHP_BIN}" ]; then
+        echo "[ERROR] Для переименования модуля нужен PHP >= ${PHP_MIN_VERSION}"
+        php_bin_hint
+        exit 1
+    fi
+
+    SRC_DIR="${src_dir}" DST_DIR="${dst_dir}" \
+        NS_VENDOR="${ns_vendor}" SRC_ID="${src_id}" DST_ID="${dst_id}" \
+        PROJECT_VENDOR="${PROJECT_VENDOR}" COMPOSER_FILE="${COMPOSER_FILE}" \
+        "${PHP_BIN}" -d display_errors=stderr /dev/stdin <<'PHP'
 <?php
+$srcDir       = getenv('SRC_DIR');
+$dstDir       = getenv('DST_DIR');
+$nsVendor     = getenv('NS_VENDOR');
+$srcId        = getenv('SRC_ID');
+$dstId        = getenv('DST_ID');
+$vendor       = getenv('PROJECT_VENDOR');
+$composerFile = getenv('COMPOSER_FILE');
 
-defined('B_PROLOG_INCLUDED') || die();
-PHP
+$srcClass = str_replace('.', '_', $srcId); // vendor_engine
+$dstClass = str_replace('.', '_', $dstId); // focal_engine
+$srcNs    = 'Vendor\\Engine';
+$dstNs    = $nsVendor . '\\Engine';
 
-    cat > "${module_dir}/install/index.php" <<PHP
-<?php
+if (!rename($srcDir, $dstDir)) {
+    fwrite(STDERR, "Не удалось переименовать каталог модуля: $srcDir -> $dstDir\n");
+    exit(1);
+}
 
-defined('B_PROLOG_INCLUDED') || die();
-
-class ${class_name} extends CModule
-{
-    public function __construct()
-    {
-        \$this->MODULE_ID = '${module_id}';
-        \$this->MODULE_VERSION = '0.0.1';
-        \$this->MODULE_VERSION_DATE = '${module_version_date}';
-        \$this->MODULE_NAME = '${module_id}';
-        \$this->MODULE_DESCRIPTION = 'Project module ${module_id}';
-        \$this->PARTNER_NAME = '${PROJECT_VENDOR}';
-        \$this->PARTNER_URI = '';
+$rii = new RecursiveIteratorIterator(
+    new RecursiveDirectoryIterator($dstDir, FilesystemIterator::SKIP_DOTS)
+);
+foreach ($rii as $file) {
+    if (!$file->isFile() || !preg_match('~\.(php|md|txt)$~', $file->getFilename())) {
+        continue;
     }
-
-    public function DoInstall(): void
-    {
-        RegisterModule(\$this->MODULE_ID);
+    $path = $file->getPathname();
+    $orig = file_get_contents($path);
+    // strtr — одновременная нестыкующаяся замена за один проход:
+    $new = strtr($orig, [
+        $srcNs    => $dstNs,   // namespace Vendor\Engine -> Focal\Engine
+        $srcId    => $dstId,   // module id + DI-идентификаторы + строки
+        $srcClass => $dstClass // install-класс vendor_engine -> focal_engine
+    ]);
+    $new = preg_replace("~(PARTNER_NAME\\s*=\\s*)'vendor'~", "$1'" . $vendor . "'", $new);
+    if ($new !== $orig) {
+        file_put_contents($path, $new);
     }
+}
 
-    public function DoUninstall(): void
-    {
-        UnRegisterModule(\$this->MODULE_ID);
+$json = json_decode(file_get_contents($composerFile), true, 512, JSON_THROW_ON_ERROR);
+if (isset($json['autoload']['psr-4'])) {
+    $rebuilt = [];
+    foreach ($json['autoload']['psr-4'] as $prefix => $dir) {
+        if ($prefix === $srcNs . '\\') {
+            $rebuilt[$dstNs . '\\'] = 'local/modules/' . $dstId . '/lib';
+        } else {
+            $rebuilt[$prefix] = $dir;
+        }
     }
+    $json['autoload']['psr-4'] = $rebuilt;
+    file_put_contents(
+        $composerFile,
+        json_encode($json, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) . PHP_EOL
+    );
 }
 PHP
 
-    echo "[OK] Создан модуль: local/modules/${module_id}"
-}
-
-create_engine_module() {
-    mkdir -p "${MODULES_ROOT}"
-    create_module "engine"
+    echo "[OK] Модуль переименован: ${src_id} -> ${dst_id} (namespace ${ns_vendor}\\Engine)"
+    echo "[INFO] Обнови автозагрузку после init: composer dump-autoload (или composer install)"
 }
 
 load_env
@@ -598,7 +639,7 @@ echo "[INFO] Сессии: ${SESSION}"
 echo "[INFO] Соединения: ${CONNECTION_ITEMS[*]}"
 
 update_composer_name
-create_engine_module
+rename_engine_module
 
 echo "[INFO] Генерируем local/.settings.php по .env..."
 

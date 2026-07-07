@@ -93,16 +93,30 @@ Document root веб-сервера: `public`.
 Первый разворот (вручную, один раз):
 
 1. Заведите на сервере ядро Битрикса — установка начисто или перенос ядра.
-2. Разложите код поверх. Если docroot хостинга — `public_html`:
+2. Разложите код поверх.
+
+   `--dir` — путь относительно **текущего каталога**, поэтому запускайте скрипт из каталога сайта (родителя docroot), например из `~/site.ru/`. Если docroot хостинга — `public_html`:
 
    ```bash
+   cd ~/site.ru
    bash <(curl -fsSL https://github.com/DeemMoor/bitrix-boilerplate/raw/master/scripts/install.sh) \
      --repo-url https://github.com/DeemMoor/bitrix-boilerplate.git --dir public_html --public-dir . --force
    ```
 
+   Если вы уже **внутри** docroot — укажите `--dir .`, иначе скрипт создаст вложенную `public_html/public_html`:
+
+   ```bash
+   cd ~/site.ru/public_html
+   bash <(curl -fsSL https://github.com/DeemMoor/bitrix-boilerplate/raw/master/scripts/install.sh) \
+     --repo-url https://github.com/DeemMoor/bitrix-boilerplate.git --dir . --public-dir . --force
+   ```
+
+   `--public-dir .` означает «веб-рут — это сам каталог проекта»: файлы из `public/` копируются в корень проекта (вариант для shared-хостинга, где docroot фиксирован).
+
    Если код можно держать выше document root:
 
    ```bash
+   cd ~/site.ru
    bash <(curl -fsSL https://github.com/DeemMoor/bitrix-boilerplate/raw/master/scripts/install.sh) \
      --repo-url https://github.com/DeemMoor/bitrix-boilerplate.git --dir app --public-dir ../public_html
    ```
@@ -113,6 +127,14 @@ Document root веб-сервера: `public`.
    ```bash
    ./scripts/init
    ```
+
+   Скрипту нужен PHP >= 8.4 в CLI. На shared-хостингах системный `php` часто старый (на Beget, например, `php -v` — это PHP 5.6), из-за чего `init` раньше молча падал с кодом 254. Теперь скрипт сам подхватывает `php8.5`/`php8.4`, а если не нашёл — укажите бинарник явно:
+
+   ```bash
+   PHP_BIN=php8.4 ./scripts/init
+   ```
+
+   (или добавьте `PHP_BIN=php8.4` в `.env`).
 
 5. Поставьте зависимости:
 
@@ -126,7 +148,36 @@ Document root веб-сервера: `public`.
    vendor/bin/phinx migrate -c phinx.php
    ```
 
-Последующие выкатки:
+7. Подключите git. `install.sh` удаляет `.git` после копирования, поэтому каталог на сервере — ещё не репозиторий, и без этого шага `git pull` при следующих выкатках работать не будет.
+
+   **Проект новый** — создайте пустой репозиторий проекта и запушьте в него текущее состояние:
+
+   ```bash
+   git init
+   git remote add origin <url-репозитория-проекта>
+   git add .
+   git status   # проверьте, что не попало лишнее: bitrix/, upload/, .env отсекает .gitignore
+   git commit -m "Initial project state"
+   git push -u origin master
+   ```
+
+   **Репозиторий проекта уже существует** (код разрабатывали локально) — привяжите каталог к нему:
+
+   ```bash
+   git init
+   git remote add origin <url-репозитория-проекта>
+   git fetch origin
+   git checkout -f -t origin/master
+   ```
+
+Если системный `php` на хостинге старый, composer и phinx тоже запускайте через нужный бинарник (либо переключите версию CLI в панели хостинга):
+
+```bash
+php8.4 "$(command -v composer)" install --no-dev --optimize-autoloader
+php8.4 vendor/bin/phinx migrate -c phinx.php
+```
+
+Последующие выкатки (git подключён на шаге 7):
 
 ```bash
 git pull

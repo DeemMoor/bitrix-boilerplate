@@ -9,6 +9,8 @@ COMPOSER_FILE="${PROJECT_ROOT}/composer.json"
 MODULES_ROOT="${PROJECT_ROOT}/local/modules"
 SETTINGS_FILE="${PROJECT_ROOT}/local/.settings.php"
 DBCONN_FILE="${PROJECT_ROOT}/local/php_interface/dbconn.php"
+PHP_MIN_VERSION_ID=80400
+PHP_MIN_VERSION="8.4"
 FORCE=false
 
 if [ "${1:-}" = "--force" ]; then
@@ -71,6 +73,45 @@ load_env() {
         printf -v "${key}" '%s' "${value}"
         export "${key}"
     done < "${ENV_FILE}"
+}
+
+# На shared-хостингах системный `php` часто старый (например, PHP 5.6 на Beget),
+# а рядом лежат версионированные бинарники php8.4, php8.5 и т.д.
+php_version_ok() {
+    "$1" -r "exit(PHP_VERSION_ID >= ${PHP_MIN_VERSION_ID} ? 0 : 1);" >/dev/null 2>&1
+}
+
+detect_php() {
+    local candidate
+
+    if [ -n "${PHP_BIN:-}" ]; then
+        if ! command -v "${PHP_BIN}" >/dev/null 2>&1; then
+            echo "[ERROR] PHP_BIN=${PHP_BIN}: команда не найдена"
+            exit 1
+        fi
+        if ! php_version_ok "${PHP_BIN}"; then
+            echo "[ERROR] PHP_BIN=${PHP_BIN} — версия $("${PHP_BIN}" -r 'echo PHP_VERSION;' 2>/dev/null || echo '?'), требуется PHP >= ${PHP_MIN_VERSION}"
+            exit 1
+        fi
+        return
+    fi
+
+    for candidate in php php8.5 php8.4; do
+        if command -v "${candidate}" >/dev/null 2>&1 && php_version_ok "${candidate}"; then
+            PHP_BIN="${candidate}"
+            if [ "${candidate}" != "php" ]; then
+                echo "[INFO] Использую ${candidate} (системный php: $(php -r 'echo PHP_VERSION;' 2>/dev/null || echo 'нет'))"
+            fi
+            return
+        fi
+    done
+
+    PHP_BIN=""
+}
+
+php_bin_hint() {
+    echo "        Системный php: $(php -r 'echo PHP_VERSION;' 2>/dev/null || echo 'не найден'), требуется PHP >= ${PHP_MIN_VERSION}."
+    echo "        Укажите бинарник явно: PHP_BIN=php8.4 ./scripts/init (или добавьте PHP_BIN в .env)"
 }
 
 is_true() {
@@ -199,12 +240,12 @@ update_composer_name() {
         return
     fi
 
-    if ! command -v php >/dev/null 2>&1; then
-        echo "[WARN] PHP не найден, composer.json не обновлен"
+    if [ -z "${PHP_BIN}" ]; then
+        echo "[WARN] PHP >= ${PHP_MIN_VERSION} не найден, composer.json не обновлен"
         return
     fi
 
-    PROJECT_NAME="${PROJECT_NAME}" COMPOSER_FILE="${COMPOSER_FILE}" php -r '
+    PROJECT_NAME="${PROJECT_NAME}" COMPOSER_FILE="${COMPOSER_FILE}" "${PHP_BIN}" -r '
         $file = getenv("COMPOSER_FILE");
         $name = getenv("PROJECT_NAME");
         $json = json_decode(file_get_contents($file), true, 512, JSON_THROW_ON_ERROR);
@@ -293,6 +334,7 @@ create_engine_module() {
 }
 
 load_env
+detect_php
 
 PROJECT_NAME="${PROJECT_NAME:-vendor/bitrix-boilerplate}"
 
@@ -329,7 +371,7 @@ fi
 apply_bitrix_settings_override() {
     local bitrix_settings="${PROJECT_ROOT}/bitrix/.settings.php"
     local app_env="${APP_ENV:-local}"
-    local result class
+    local result class=""
 
     if [ "${app_env,,}" = "local" ]; then
         return
@@ -341,14 +383,15 @@ apply_bitrix_settings_override() {
         exit 1
     fi
 
-    if ! command -v php >/dev/null 2>&1; then
-        echo "[ERROR] PHP не найден, не могу прочитать bitrix/.settings.php"
+    if [ -z "${PHP_BIN}" ]; then
+        echo "[ERROR] Не могу прочитать bitrix/.settings.php: нет подходящего PHP."
+        php_bin_hint
         exit 1
     fi
 
-    echo "[INFO] Беру креды БД из bitrix/.settings.php (APP_ENV=${app_env})"
+    echo "[INFO] Беру креды БД из bitrix/.settings.php (APP_ENV=${app_env}, ${PHP_BIN})"
 
-    result="$(BITRIX_SETTINGS_FILE="${bitrix_settings}" php -r '
+    if ! result="$(BITRIX_SETTINGS_FILE="${bitrix_settings}" "${PHP_BIN}" -d display_errors=stderr -r '
         $file = getenv("BITRIX_SETTINGS_FILE");
         $settings = @include $file;
         if (!is_array($settings)) {
@@ -365,7 +408,10 @@ apply_bitrix_settings_override() {
             $v = str_replace(["\r", "\n"], ["", "\\n"], $v);
             echo $k . "=" . $v . "\n";
         }
-    ')"
+    ')"; then
+        echo "[ERROR] Не удалось прочитать bitrix/.settings.php (${PHP_BIN} завершился с ошибкой, детали выше)."
+        exit 1
+    fi
 
     while IFS='=' read -r key value; do
         case "${key}" in

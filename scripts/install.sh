@@ -16,8 +16,13 @@ After bootstrap: copy .env.example to .env, edit it, then run ./scripts/init.
 Options:
   --repo-url URL   Git repository URL of the boilerplate repository.
   --ref REF        Optional branch, tag, or commit to checkout. Default: master
-  --dir DIR        Target project directory.
-  --public-dir DIR Web root directory relative to project root or absolute path. Default: public
+  --dir DIR        Target project directory, resolved relative to the current
+                   directory. Run the script from the parent of the target dir
+                   (e.g. the site root). If you are already inside the hosting
+                   docroot, pass --dir .
+  --public-dir DIR Web root directory relative to project root or absolute path.
+                   Use --public-dir . when the docroot is the project dir itself.
+                   Default: public
   --force          Allow installing into an existing directory. Existing matching files may be overwritten.
   -h, --help       Show this help.
 EOF
@@ -105,6 +110,18 @@ if [[ -e "$TARGET_DIR" ]]; then
         exit 1
     fi
 else
+    if [[ "$(basename "$PWD")" == "$TARGET_DIR" ]]; then
+        echo "[WARN] Current directory is already named '$TARGET_DIR' — this will create nested $PWD/$TARGET_DIR." >&2
+        echo "[WARN] If you are already inside the docroot, use --dir . instead." >&2
+        answer=""
+        if [[ -t 0 ]]; then
+            read -r -p "Continue anyway? [y/N] " answer
+        fi
+        if [[ ! "$answer" =~ ^[yY] ]]; then
+            echo "Aborted." >&2
+            exit 1
+        fi
+    fi
     mkdir -p "$TARGET_DIR"
 fi
 

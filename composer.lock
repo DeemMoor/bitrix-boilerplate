@@ -4,7 +4,7 @@
         "Read more about it at https://getcomposer.org/doc/01-basic-usage.md#installing-dependencies",
         "This file is @generated automatically"
     ],
-    "content-hash": "549f32e7d20917fd61f0459404814f46",
+    "content-hash": "8105229a194314869a2130c2bfcf6daf",
     "packages": [
         {
             "name": "cakephp/chronos",
@@ -2670,11 +2670,17 @@
         },
         {
             "name": "webpractik/bitrixoa",
-            "version": "dev-master",
+            "version": "1.3.0",
+            "source": {
+                "type": "git",
+                "url": "https://github.com/webpractik/bitrixoa.git",
+                "reference": "4155f61c49e563582e18854d0be151c1d470b65e"
+            },
             "dist": {
-                "type": "path",
-                "url": "packages/bitrixoa",
-                "reference": "0ca2f85261991c7f5e400ffccc64288510c4ad34"
+                "type": "zip",
+                "url": "https://api.github.com/repos/webpractik/bitrixoa/zipball/4155f61c49e563582e18854d0be151c1d470b65e",
+                "reference": "4155f61c49e563582e18854d0be151c1d470b65e",
+                "shasum": ""
             },
             "require": {
                 "doctrine/annotations": "^2.0",
@@ -2690,6 +2696,7 @@
                     "BitrixOA\\": "src"
                 }
             },
+            "notification-url": "https://packagist.org/downloads/",
             "license": [
                 "MIT"
             ],
@@ -2706,10 +2713,11 @@
                 "bitrix controllers",
                 "swagger"
             ],
-            "transport-options": {
-                "symlink": true,
-                "relative": true
-            }
+            "support": {
+                "issues": "https://github.com/webpractik/bitrixoa/issues",
+                "source": "https://github.com/webpractik/bitrixoa/tree/1.3.0"
+            },
+            "time": "2026-06-08T09:15:16+00:00"
         },
         {
             "name": "zircote/swagger-php",
@@ -4685,14 +4693,12 @@
     ],
     "aliases": [],
     "minimum-stability": "stable",
-    "stability-flags": {
-        "webpractik/bitrixoa": 20
-    },
+    "stability-flags": {},
     "prefer-stable": false,
     "prefer-lowest": false,
     "platform": {
         "php": ">=8.4"
     },
     "platform-dev": {},
-    "plugin-api-version": "2.9.0"
+    "plugin-api-version": "2.6.0"
 }

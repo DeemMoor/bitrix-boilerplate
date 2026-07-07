@@ -9,7 +9,7 @@
         "robmorgan/phinx": "^0.16.11",
         "monolog/monolog": "^3.10",
         "symfony/console": "^8.0",
-        "webpractik/bitrixoa": "@dev",
+        "webpractik/bitrixoa": "^1.3",
         "zircote/swagger-php": "^6.0"
     },
     "require-dev": {
@@ -35,14 +35,5 @@
         "allow-plugins": {
             "php-http/discovery": true
         }
-    },
-    "repositories": [
-        {
-            "type": "path",
-            "url": "packages/bitrixoa",
-            "options": {
-                "symlink": true
-            }
-        }
-    ]
+    }
 }

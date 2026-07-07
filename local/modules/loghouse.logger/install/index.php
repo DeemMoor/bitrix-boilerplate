@@ -1,5 +1,7 @@
 <?php
 
+declare(strict_types=1);
+
 use Bitrix\Main\Application;
 use Bitrix\Main\Config\Option;
 use Bitrix\Main\Loader;

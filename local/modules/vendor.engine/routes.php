@@ -1,5 +1,7 @@
 <?php
 
+declare(strict_types=1);
+
 use Bitrix\Main\Routing\RoutingConfigurator;
 use Vendor\Engine\Controller\TestController;
 use Vendor\Engine\Controller\ApiDocController;

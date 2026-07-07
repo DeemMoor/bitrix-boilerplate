@@ -1,5 +1,7 @@
 <?php
 
+declare(strict_types=1);
+
 use Bitrix\Main\Loader;
 
 $docRoot = (string)($_SERVER['DOCUMENT_ROOT'] ?? '');

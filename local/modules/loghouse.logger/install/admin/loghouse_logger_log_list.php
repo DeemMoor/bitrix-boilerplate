@@ -1,5 +1,7 @@
 <?php
 
+declare(strict_types=1);
+
 require_once $_SERVER['DOCUMENT_ROOT'] . '/bitrix/modules/main/include.php';
 
 $localPath = getLocalPath('modules/loghouse.logger/admin/log_list.php');

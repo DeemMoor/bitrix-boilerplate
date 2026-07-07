@@ -1,5 +1,7 @@
 <?php
 
+declare(strict_types=1);
+
 use Bitrix\Main\ModuleManager;
 use Bitrix\Main\Routing\RoutingConfigurator;
 

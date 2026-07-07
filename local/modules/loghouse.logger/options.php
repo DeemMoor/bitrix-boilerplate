@@ -1,5 +1,7 @@
 <?php
 
+declare(strict_types=1);
+
 use Bitrix\Main\Loader;
 use Loghouse\Logger\Options;
 use Bitrix\Main\Config\Option;

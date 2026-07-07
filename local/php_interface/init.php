@@ -1,5 +1,7 @@
 <?php
 
+declare(strict_types=1);
+
 if (!function_exists('project_require_composer_autoload')) {
     function project_require_composer_autoload(?string $startPath = null): bool
     {

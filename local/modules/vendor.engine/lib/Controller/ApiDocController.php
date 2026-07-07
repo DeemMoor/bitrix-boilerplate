@@ -1,5 +1,7 @@
 <?php
 
+declare(strict_types=1);
+
 namespace Vendor\Engine\Controller;
 
 use BitrixOA\UiPage;

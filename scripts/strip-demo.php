@@ -68,6 +68,10 @@ foreach ([
     $deleteFile($module . $rel);
 }
 
+// 1b. Демо-тест, завязанный на удаляемые классы Example.
+$deleteFile($root . '/tests/Unit/ExampleReadModelTest.php');
+$gitkeepIfEmpty($root . '/tests/Unit');
+
 // 2. Переписываем структурные файлы на чистые версии.
 
 $writeFile($module . '/routes.php', <<<'PHP'

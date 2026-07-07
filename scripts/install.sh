@@ -152,6 +152,10 @@ prepare_public_dir() {
     find "$public_source" -mindepth 1 -maxdepth 1 -type f -exec cp {} "$web_root/" \;
 
     if [[ "$web_root" == "$project_root" ]]; then
+        # Web root совпадает с корнем проекта (--public-dir .): файлы из public/
+        # уже скопированы в корень, а bitrix/local/upload лежат там же реально —
+        # исходный каталог public/ больше не нужен, убираем хвост.
+        rm -rf "$public_source"
         return
     fi
 

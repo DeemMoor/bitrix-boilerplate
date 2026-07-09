@@ -1,5 +1,5 @@
 {
-    "name": "vendor/bitrix-boilerplate",
+    "name": "deemmoor/bitrix-boilerplate",
     "description": "Production-ready boilerplate для проектов на 1C-Битрикс",
     "type": "project",
     "license": "MIT",
@@ -28,7 +28,8 @@
         }
     },
     "scripts": {
-        "test": "phpunit"
+        "test": "phpunit",
+        "post-create-project-cmd": "bash scripts/bootstrap --from-composer"
     },
     "config": {
         "sort-packages": true,

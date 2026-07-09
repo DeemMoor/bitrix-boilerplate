@@ -1,0 +1,966 @@
+#!/usr/bin/env bash
+#
+# Bitrix Boilerplate — интерактивный установщик.
+#
+# Одна команда с нуля (curl-режим):
+#   bash <(curl -fsSL https://github.com/DeemMoor/bitrix-boilerplate/raw/master/scripts/bootstrap)
+#
+# Из склонированного репозитория:
+#   ./scripts/bootstrap
+#
+# После composer create-project запускается автоматически (--from-composer).
+#
+# Мастер жёстко проверяет зависимости (git, PHP >= 8.4, composer, dl для
+# локалки, установленный Битрикс для хостинга) и при любой ошибке откатывает
+# всё, что успел создать, — хвостов не остаётся.
+
+set -Eeuo pipefail
+
+DEFAULT_REPO_URL="https://github.com/DeemMoor/bitrix-boilerplate.git"
+PHP_MIN_VERSION="8.4"
+PHP_MIN_VERSION_ID=80400
+
+# ---------------------------------------------------------------------------
+# Цвета и вывод
+# ---------------------------------------------------------------------------
+
+if [[ -t 1 && -z "${NO_COLOR:-}" ]]; then
+    C_RESET=$'\033[0m'
+    C_TITLE=$'\033[1;36m'
+    C_CYAN=$'\033[36m'
+    C_GREEN=$'\033[32m'
+    C_YELLOW=$'\033[33m'
+    C_RED=$'\033[31m'
+    C_DIM=$'\033[2m'
+else
+    C_RESET='' C_TITLE='' C_CYAN='' C_GREEN='' C_YELLOW='' C_RED='' C_DIM=''
+fi
+
+say()  { printf '%s\n' "$1"; }
+ok()   { printf '%s\n' "${C_GREEN}[OK]${C_RESET} $1"; }
+info() { printf '%s\n' "${C_DIM}$1${C_RESET}"; }
+warn() { printf '%s\n' "${C_YELLOW}[WARN]${C_RESET} $1" >&2; }
+err()  { printf '%s\n' "${C_RED}[ERROR]${C_RESET} $1" >&2; }
+
+die() {
+    err "$1"
+    if [[ -n "${2:-}" ]]; then
+        printf '%s\n' "        $2" >&2
+    fi
+    exit 1
+}
+
+banner() {
+    printf '%s' "${C_TITLE}"
+    cat <<'EOF'
+  ____  _ _        _        ____        _ _                 _       _
+ | __ )(_) |_ _ __(_)_  __ | __ )  ___ (_) | ___ _ __ _ __ | | __ _| |_ ___
+ |  _ \| | __| '__| \ \/ / |  _ \ / _ \| | |/ _ \ '__| '_ \| |/ _` | __/ _ \
+ | |_) | | |_| |  | |>  <  | |_) | (_) | | |  __/ |  | |_) | | (_| | ||  __/
+ |____/|_|\__|_|  |_/_/\_\ |____/ \___/|_|_|\___|_|  | .__/|_|\__,_|\__\___|
+                                                     |_|
+EOF
+    printf '%s\n' "${C_RESET}"
+}
+
+QUESTION_N=1
+QUESTION_TOTAL=8
+
+section() { # section "База данных"
+    printf '\n%s\n' "${C_TITLE}[${QUESTION_N}/${QUESTION_TOTAL}] $1${C_RESET}"
+    QUESTION_N=$((QUESTION_N + 1))
+}
+
+# ---------------------------------------------------------------------------
+# Ввод: вопросы с дефолтами, меню, y/n
+# ---------------------------------------------------------------------------
+
+INTERACTIVE=0
+if [[ -t 0 ]]; then
+    INTERACTIVE=1
+fi
+
+# ask_value VAR "Вопрос" "дефолт" "regex" "подсказка при ошибке"
+ask_value() {
+    local var="$1" question="$2" default="$3" regex="${4:-}" hint="${5:-}" answer
+    if [[ -n "${!var}" ]]; then
+        if [[ -n "$regex" && ! "${!var}" =~ $regex ]]; then
+            die "Недопустимое значение «${!var}» (${question})." "$hint"
+        fi
+        return
+    fi
+    if [[ "$INTERACTIVE" -ne 1 || "$ASSUME_YES" -eq 1 ]]; then
+        if [[ -n "$regex" && ! "$default" =~ $regex ]]; then
+            die "Недопустимое значение по умолчанию «${default}» (${question})." "$hint"
+        fi
+        printf -v "$var" '%s' "$default"
+        return
+    fi
+    while true; do
+        printf '%s' "${C_CYAN}${question}${C_RESET} ${C_DIM}[${default}]${C_RESET}: "
+        read -r answer
+        answer="${answer:-$default}"
+        if [[ -z "$regex" || "$answer" =~ $regex ]]; then
+            printf -v "$var" '%s' "$answer"
+            return
+        fi
+        err "Недопустимое значение. ${hint}"
+    done
+}
+
+# ask_yn VAR "Вопрос" y|n  → VAR=1|0
+ask_yn() {
+    local var="$1" question="$2" default="$3" suffix answer
+    if [[ -n "${!var}" ]]; then
+        return
+    fi
+    if [[ "$INTERACTIVE" -ne 1 || "$ASSUME_YES" -eq 1 ]]; then
+        if [[ "$default" == y ]]; then printf -v "$var" '1'; else printf -v "$var" '0'; fi
+        return
+    fi
+    if [[ "$default" == y ]]; then
+        suffix="[${C_GREEN}Y${C_RESET}/n]"
+    else
+        suffix="[y/${C_GREEN}N${C_RESET}]"
+    fi
+    printf '%s' "${C_CYAN}${question}${C_RESET} ${suffix} "
+    read -r answer
+    answer="${answer:-$default}"
+    case "$answer" in
+        y|Y|yes|YES|д|Д) printf -v "$var" '1' ;;
+        *)               printf -v "$var" '0' ;;
+    esac
+}
+
+# ask_menu VAR "Вопрос" default_index "пункт1" "пункт2" ... → VAR=выбранный индекс (с 1)
+ask_menu() {
+    local var="$1" question="$2" default="$3" i answer
+    shift 3
+    local options=("$@")
+    if [[ -n "${!var}" ]]; then
+        return
+    fi
+    if [[ "$INTERACTIVE" -ne 1 || "$ASSUME_YES" -eq 1 ]]; then
+        printf -v "$var" '%s' "$default"
+        return
+    fi
+    printf '%s\n' "${C_CYAN}${question}${C_RESET}"
+    for i in "${!options[@]}"; do
+        printf '  %s\n' "${C_TITLE}$((i + 1)))${C_RESET} ${options[$i]}"
+    done
+    while true; do
+        printf '%s' "${C_CYAN}Выбор${C_RESET} ${C_DIM}[${default}]${C_RESET}: "
+        read -r answer
+        answer="${answer:-$default}"
+        if [[ "$answer" =~ ^[0-9]+$ ]] && (( answer >= 1 && answer <= ${#options[@]} )); then
+            printf -v "$var" '%s' "$answer"
+            return
+        fi
+        err "Введите число от 1 до ${#options[@]}."
+    done
+}
+
+# ---------------------------------------------------------------------------
+# Откат: всё, что мастер создал, при ошибке удаляется, перезаписанное
+# восстанавливается из бэкапа
+# ---------------------------------------------------------------------------
+
+TMP_DIR="$(mktemp -d)"
+CLEANUP_PATHS=()        # созданные мастером файлы/каталоги — удалить при ошибке
+RESTORE_PAIRS=()        # "backup|original" — вернуть перезаписанное при ошибке
+PROJECT_DIR_CREATED=""  # каталог, созданный мастером целиком, — снести при ошибке
+CURRENT_STEP=""
+CLEANUP_DONE=0
+
+cleanup_on_fail() {
+    if [[ "$CLEANUP_DONE" -eq 1 ]]; then
+        return
+    fi
+    CLEANUP_DONE=1
+    local path pair
+    if [[ -z "$PROJECT_DIR_CREATED" \
+          && "${#CLEANUP_PATHS[@]}" -eq 0 \
+          && "${#RESTORE_PAIRS[@]}" -eq 0 ]]; then
+        return # ничего ещё не создали — чистить нечего
+    fi
+    warn "Подчищаю за собой..."
+    if [[ -n "$PROJECT_DIR_CREATED" ]]; then
+        cd /
+        rm -rf "$PROJECT_DIR_CREATED"
+        info "Удалён каталог: $PROJECT_DIR_CREATED"
+    else
+        for path in "${CLEANUP_PATHS[@]}"; do
+            if [[ -e "$path" || -L "$path" ]]; then
+                rm -rf "$path"
+            fi
+        done
+        for pair in "${RESTORE_PAIRS[@]}"; do
+            rm -rf "${pair##*|}"
+            cp -a "${pair%%|*}" "${pair##*|}"
+        done
+        info "Созданные файлы удалены, перезаписанные восстановлены."
+    fi
+}
+
+on_error() {
+    local status=$?
+    trap - ERR INT TERM
+    if [[ -n "$CURRENT_STEP" ]]; then
+        err "Шаг «${CURRENT_STEP}» завершился с ошибкой (код ${status}). Установка прервана."
+    else
+        err "Установка прервана (код ${status})."
+    fi
+    exit 1
+}
+
+on_exit() {
+    local status=$?
+    if [[ "$status" -ne 0 ]]; then
+        cleanup_on_fail
+    fi
+    rm -rf "$TMP_DIR"
+}
+
+trap on_error ERR
+trap 'on_error' INT TERM
+trap on_exit EXIT
+
+# ---------------------------------------------------------------------------
+# Проверки зависимостей — при отсутствии чего-либо падаем сразу и явно
+# ---------------------------------------------------------------------------
+
+PHP_BIN="${PHP_BIN:-}"
+
+php_version_ok() {
+    "$1" -r "exit(PHP_VERSION_ID >= ${PHP_MIN_VERSION_ID} ? 0 : 1);" >/dev/null 2>&1
+}
+
+check_base_deps() {
+    if (( BASH_VERSINFO[0] < 4 )); then
+        die "Нужен bash >= 4, у вас ${BASH_VERSION}."
+    fi
+
+    command -v git >/dev/null 2>&1 \
+        || die "git не найден." "Установите git и запустите мастер снова."
+
+    if [[ -n "$PHP_BIN" ]]; then
+        command -v "$PHP_BIN" >/dev/null 2>&1 \
+            || die "PHP_BIN=${PHP_BIN}: команда не найдена."
+        php_version_ok "$PHP_BIN" \
+            || die "PHP_BIN=${PHP_BIN} — версия $("$PHP_BIN" -r 'echo PHP_VERSION;' 2>/dev/null || echo '?'), нужен PHP >= ${PHP_MIN_VERSION}."
+    else
+        # На shared-хостингах системный php часто старый, рядом лежат php8.4/php8.5.
+        local candidate
+        for candidate in php php8.5 php8.4; do
+            if command -v "$candidate" >/dev/null 2>&1 && php_version_ok "$candidate"; then
+                PHP_BIN="$candidate"
+                break
+            fi
+        done
+        [[ -n "$PHP_BIN" ]] \
+            || die "PHP >= ${PHP_MIN_VERSION} не найден (системный php: $(php -r 'echo PHP_VERSION;' 2>/dev/null || echo 'нет'))." \
+                   "Установите PHP ${PHP_MIN_VERSION}+ или укажите бинарник: PHP_BIN=php8.4 bash scripts/bootstrap"
+    fi
+    ok "PHP: ${PHP_BIN} ($("$PHP_BIN" -r 'echo PHP_VERSION;'))"
+
+    command -v composer >/dev/null 2>&1 \
+        || die "composer не найден." "Установите composer (https://getcomposer.org/download/) и запустите мастер снова."
+    ok "composer: $(command -v composer)"
+    ok "git: $(command -v git)"
+}
+
+check_dl() {
+    command -v dl >/dev/null 2>&1 \
+        || die "dl не найден — для локальной установки он обязателен." \
+               "Установите DL: https://local-deploy.github.io/ru/getting-started/install"
+    ok "dl: $(command -v dl)"
+}
+
+check_bitrix_installed() { # check_bitrix_installed <docroot>
+    local docroot="$1"
+    if [[ ! -f "$docroot/bitrix/modules/main/include.php" || ! -f "$docroot/bitrix/.settings.php" ]]; then
+        die "В «${docroot}» не найден установленный Битрикс (нет bitrix/.settings.php или bitrix/modules/main)." \
+            "Сначала установите ядро Битрикса, затем ставьте болванку поверх него."
+    fi
+    ok "Битрикс найден: ${docroot}/bitrix"
+}
+
+# Запускает composer через подходящий PHP (на хостингах системный php бывает старым).
+composer_cmd() {
+    if [[ "$PHP_BIN" == "php" ]]; then
+        composer "$@"
+    else
+        "$PHP_BIN" "$(command -v composer)" "$@"
+    fi
+}
+
+# ---------------------------------------------------------------------------
+# Аргументы
+# ---------------------------------------------------------------------------
+
+usage() {
+    cat <<EOF
+Bitrix Boilerplate — интерактивный установщик.
+
+Использование:
+  bash <(curl -fsSL https://github.com/DeemMoor/bitrix-boilerplate/raw/master/scripts/bootstrap) [флаги]
+  ./scripts/bootstrap [флаги]
+
+Без флагов задаёт вопросы. Всё, что задано флагом, не спрашивается.
+
+Флаги:
+  --target local|hosting   Куда ставим: локалка (docker/dl) или shared-хостинг.
+  --dir DIR                Каталог проекта для локалки. По умолчанию: project
+  --public-dir DIR         Docroot хостинга, где уже установлен Битрикс. По умолчанию: public_html
+  --vendor NAME            Vendor: a-z, 0-9, _ (станет префиксом модуля <vendor>.engine).
+  --name NAME              Название проекта: a-z, 0-9, _, ., -
+  --host-name NAME         HOST_NAME для .env. По умолчанию: название проекта.
+  --db mysql|pgsql|mariadb Тип базы (только локалка; на хостинге берётся из Битрикса).
+  --db-version V           Версия БД (по умолчанию: mysql 8.4, pgsql 18, mariadb lts).
+  --redis                  Включить Redis.
+  --memcached              Включить Memcached.
+  --redis-host H / --redis-port P / --memcached-host H / --memcached-port P
+                           Адреса сервисов на хостинге. По умолчанию: 127.0.0.1.
+  --cache files|redis|memcache|none       Кэш Битрикса. По умолчанию: files
+  --session file|database|redis|memcache  Сессии. По умолчанию: file
+  --strip-demo | --keep-demo  Удалить/оставить демо-код (на хостинге удаляется всегда).
+  --git | --no-git         Делать ли git init + первый коммит. По умолчанию: git.
+  --force                  Разрешить установку в непустой каталог и перезапись .env.
+  --yes                    Неинтерактивный режим: дефолты для всего незаданного.
+  --ref REF                Ветка/тег болванки. По умолчанию: master
+  --repo-url URL           Репозиторий болванки. По умолчанию: ${DEFAULT_REPO_URL}
+  --from-composer          Служебный: запуск из composer create-project.
+  -h, --help               Эта справка.
+
+Зависимости (обязательные, при отсутствии — ошибка): git, PHP >= ${PHP_MIN_VERSION},
+composer; для локалки — dl; для хостинга — уже установленный Битрикс в docroot.
+EOF
+}
+
+TARGET=""
+PROJECT_DIR=""
+DOCROOT=""
+VENDOR=""
+NAME=""
+HOST_NAME_V=""
+DB=""
+DB_VERSION=""
+WANT_REDIS=""
+WANT_MEMCACHED=""
+REDIS_HOST_V=""
+REDIS_PORT_V=""
+MEMCACHED_HOST_V=""
+MEMCACHED_PORT_V=""
+CACHE_V=""
+SESSION_V=""
+STRIP_DEMO=""
+GIT_INIT=""
+FORCE=0
+ASSUME_YES=0
+REF="master"
+REPO_URL="$DEFAULT_REPO_URL"
+SOURCE_DIR=""
+FROM_COMPOSER=0
+
+# composer create-project не умеет передавать аргументы хуку —
+# для неинтерактивных сценариев поддерживаем переменную BOOTSTRAP_ARGS.
+if [[ "${1:-}" == "--from-composer" && -n "${BOOTSTRAP_ARGS:-}" ]]; then
+    # shellcheck disable=SC2086
+    set -- "$@" ${BOOTSTRAP_ARGS}
+fi
+
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --target)         TARGET="${2:-}"; shift 2 ;;
+        --dir)            PROJECT_DIR="${2:-}"; shift 2 ;;
+        --public-dir|--docroot) DOCROOT="${2:-}"; shift 2 ;;
+        --vendor)         VENDOR="${2:-}"; shift 2 ;;
+        --name)           NAME="${2:-}"; shift 2 ;;
+        --host-name)      HOST_NAME_V="${2:-}"; shift 2 ;;
+        --db)             DB="${2:-}"; shift 2 ;;
+        --db-version)     DB_VERSION="${2:-}"; shift 2 ;;
+        --redis)          WANT_REDIS=1; shift ;;
+        --memcached)      WANT_MEMCACHED=1; shift ;;
+        --redis-host)     REDIS_HOST_V="${2:-}"; shift 2 ;;
+        --redis-port)     REDIS_PORT_V="${2:-}"; shift 2 ;;
+        --memcached-host) MEMCACHED_HOST_V="${2:-}"; shift 2 ;;
+        --memcached-port) MEMCACHED_PORT_V="${2:-}"; shift 2 ;;
+        --cache)          CACHE_V="${2:-}"; shift 2 ;;
+        --session)        SESSION_V="${2:-}"; shift 2 ;;
+        --strip-demo)     STRIP_DEMO=1; shift ;;
+        --keep-demo)      STRIP_DEMO=0; shift ;;
+        --git)            GIT_INIT=1; shift ;;
+        --no-git)         GIT_INIT=0; shift ;;
+        --force)          FORCE=1; shift ;;
+        --yes)            ASSUME_YES=1; shift ;;
+        --ref)            REF="${2:-}"; shift 2 ;;
+        --repo-url)       REPO_URL="${2:-}"; shift 2 ;;
+        --source-dir)     SOURCE_DIR="${2:-}"; shift 2 ;;
+        --from-composer)  FROM_COMPOSER=1; shift ;;
+        -h|--help)        usage; exit 0 ;;
+        *)                die "Неизвестный флаг: $1" "Список флагов: ./scripts/bootstrap --help" ;;
+    esac
+done
+
+case "$TARGET" in ''|local|hosting) ;; *) die "--target: допустимо local или hosting, получено «${TARGET}»." ;; esac
+case "$DB" in ''|mysql|pgsql|mariadb) ;; *) die "--db: допустимо mysql, pgsql или mariadb, получено «${DB}»." ;; esac
+case "$CACHE_V" in ''|files|redis|memcache|none) ;; *) die "--cache: допустимо files, redis, memcache или none." ;; esac
+case "$SESSION_V" in ''|file|database|redis|memcache) ;; *) die "--session: допустимо file, database, redis или memcache." ;; esac
+
+if [[ "$INTERACTIVE" -ne 1 && "$ASSUME_YES" -ne 1 ]]; then
+    die "stdin не терминал: интерактивные вопросы невозможны." \
+        "Добавьте --yes (дефолты для незаданного) и задайте нужное флагами: --target, --dir/--public-dir, --vendor, --name, --db, --cache, --session, --strip-demo/--keep-demo, --git/--no-git."
+fi
+
+# ---------------------------------------------------------------------------
+# Режим запуска: curl (remote), из репозитория (repo) или composer-хук
+# ---------------------------------------------------------------------------
+
+MODE="remote"
+PROJECT_ROOT=""
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" 2>/dev/null && pwd -P || true)"
+
+if [[ "$FROM_COMPOSER" -eq 1 ]]; then
+    MODE="composer"
+    PROJECT_ROOT="$PWD"
+elif [[ -z "$SOURCE_DIR" && -n "$SCRIPT_DIR" && -f "$SCRIPT_DIR/init" && -f "$SCRIPT_DIR/../composer.json" ]]; then
+    MODE="repo"
+    PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd -P)"
+fi
+
+banner
+say "Интерактивный установщик Bitrix Boilerplate."
+info "Enter — принять значение в скобках, Ctrl+C — выход."
+say ""
+say "${C_TITLE}Проверка зависимостей${C_RESET}"
+check_base_deps
+
+# ---------------------------------------------------------------------------
+# Вопросы
+# ---------------------------------------------------------------------------
+
+TARGET_CHOICE=""
+if [[ "$TARGET" == "local" ]]; then TARGET_CHOICE=1; fi
+if [[ "$TARGET" == "hosting" ]]; then TARGET_CHOICE=2; fi
+printf '\n%s\n' "${C_TITLE}Куда ставим болванку?${C_RESET}"
+ask_menu TARGET_CHOICE "Вариант установки" 1 \
+    "Локалка или свой сервер (docker + dl, docroot = public/)" \
+    "Shared-хостинг (поверх уже установленного Битрикса)"
+if [[ "$TARGET_CHOICE" == "1" ]]; then TARGET="local"; else TARGET="hosting"; fi
+
+if [[ "$TARGET" == "local" ]]; then
+    check_dl
+    QUESTION_TOTAL=8
+    if [[ "$MODE" != "remote" ]]; then
+        QUESTION_TOTAL=7
+    fi
+else
+    QUESTION_TOTAL=6
+fi
+
+# --- Каталог проекта / docroot ----------------------------------------------
+if [[ "$MODE" == "remote" ]]; then
+    if [[ "$TARGET" == "local" ]]; then
+        section "Каталог проекта"
+        ask_value PROJECT_DIR "Имя каталога проекта" "project" '^[A-Za-z0-9._/-]+$' \
+            "Только буквы, цифры, точки, дефисы и подчёркивания."
+        if [[ "$PROJECT_DIR" != /* ]]; then
+            PROJECT_DIR="$PWD/${PROJECT_DIR%/}"
+        fi
+        if [[ -e "$PROJECT_DIR" && "$FORCE" -ne 1 ]]; then
+            die "Каталог уже существует: ${PROJECT_DIR}." \
+                "Укажите другой каталог или добавьте --force для установки в существующий."
+        fi
+    else
+        section "Каталог сайта"
+        docroot_default="public_html"
+        if [[ -f "./bitrix/.settings.php" ]]; then
+            docroot_default="."
+        fi
+        ask_value DOCROOT "Путь к docroot, где установлен Битрикс" "$docroot_default" '' ''
+        if [[ ! -d "$DOCROOT" ]]; then
+            die "Каталог не найден: ${DOCROOT}."
+        fi
+        DOCROOT="$(cd "$DOCROOT" && pwd -P)"
+        check_bitrix_installed "$DOCROOT"
+    fi
+else
+    # repo/composer: ставимся в корень репозитория, где лежит сам скрипт.
+    if [[ "$TARGET" == "local" ]]; then
+        PROJECT_DIR="$PROJECT_ROOT"
+    else
+        DOCROOT="$PROJECT_ROOT"
+        section "Каталог сайта"
+        check_bitrix_installed "$DOCROOT"
+    fi
+fi
+
+# .env на месте установки: без --force в неинтерактивном режиме не перезаписываем.
+ENV_TARGET_DIR="$PROJECT_ROOT"
+if [[ "$MODE" == "remote" ]]; then
+    if [[ "$TARGET" == "local" ]]; then ENV_TARGET_DIR="$PROJECT_DIR"; else ENV_TARGET_DIR="$DOCROOT"; fi
+fi
+if [[ -f "$ENV_TARGET_DIR/.env" && "$FORCE" -ne 1 && "$ASSUME_YES" -eq 1 ]]; then
+    die "В ${ENV_TARGET_DIR} уже есть .env." "Добавьте --force, чтобы перезаписать его ответами мастера."
+fi
+
+# --- Vendor и название -------------------------------------------------------
+section "Vendor и название проекта"
+default_name="project"
+if [[ "$TARGET" == "local" && -n "$PROJECT_DIR" ]]; then
+    default_name="$(basename "$PROJECT_DIR" | tr '[:upper:]' '[:lower:]' | tr -cd 'a-z0-9_.-')"
+elif [[ -n "$DOCROOT" ]]; then
+    default_name="$(basename "$(dirname "$DOCROOT")" | tr '[:upper:]' '[:lower:]' | tr -cd 'a-z0-9_.-')"
+fi
+if [[ -z "$default_name" || ! "$default_name" =~ ^[a-z] ]]; then
+    default_name="project"
+fi
+
+ask_value VENDOR "Vendor (префикс модуля <vendor>.engine)" "vendor" '^[a-z][a-z0-9_]*$' \
+    "Строчные латинские буквы, цифры и _, первая — буква."
+ask_value NAME "Название проекта" "$default_name" '^[a-z][a-z0-9_.-]*$' \
+    "Строчные латинские буквы, цифры, точки, дефисы и _, первая — буква."
+ask_value HOST_NAME_V "HOST_NAME (домен/имя хоста для окружения)" "$NAME" '^[a-z0-9][a-z0-9.-]*$' \
+    "Строчные буквы, цифры, точки и дефисы."
+
+# --- База данных -------------------------------------------------------------
+if [[ "$TARGET" == "local" ]]; then
+    section "База данных"
+    DB_CHOICE=""
+    case "$DB" in mysql) DB_CHOICE=1 ;; pgsql) DB_CHOICE=2 ;; mariadb) DB_CHOICE=3 ;; esac
+    ask_menu DB_CHOICE "Какая база данных?" 1 "MySQL" "PostgreSQL" "MariaDB"
+    case "$DB_CHOICE" in
+        1) DB="mysql" ;;
+        2) DB="pgsql" ;;
+        3) DB="mariadb" ;;
+    esac
+    case "$DB" in
+        mysql)   db_ver_default="8.4" ;;
+        pgsql)   db_ver_default="18" ;;
+        mariadb) db_ver_default="lts" ;;
+    esac
+    ask_value DB_VERSION "Версия ${DB}" "$db_ver_default" '^[A-Za-z0-9.-]+$' "Например: ${db_ver_default}"
+    info "Креды БД для локалки под dl: db/db/db (меняются в .env)."
+else
+    # На хостинге тип и креды БД init берёт из bitrix/.settings.php —
+    # вопросы не нужны, тип определяем сами только ради CONNECTIONS.
+    if grep -q 'Pgsql' "$DOCROOT/bitrix/.settings.php" 2>/dev/null; then
+        DB="pgsql"
+    else
+        DB="mysql"
+    fi
+    info "База данных: ${DB} (тип и креды возьмутся из bitrix/.settings.php)."
+fi
+
+# --- Сервисы -------------------------------------------------------------------
+section "Сервисы"
+ask_yn WANT_REDIS "Нужен Redis?" n
+ask_yn WANT_MEMCACHED "Нужен Memcached?" n
+if [[ "$TARGET" == "hosting" ]]; then
+    if [[ "$WANT_REDIS" -eq 1 ]]; then
+        ask_value REDIS_HOST_V "Хост Redis" "127.0.0.1" '^[A-Za-z0-9._/-]+$' ''
+        ask_value REDIS_PORT_V "Порт Redis" "6379" '^[0-9]+$' "Число."
+    fi
+    if [[ "$WANT_MEMCACHED" -eq 1 ]]; then
+        ask_value MEMCACHED_HOST_V "Хост Memcached" "127.0.0.1" '^[A-Za-z0-9._/-]+$' ''
+        ask_value MEMCACHED_PORT_V "Порт Memcached" "11211" '^[0-9]+$' "Число."
+    fi
+fi
+
+# --- Кэш и сессии ----------------------------------------------------------------
+section "Кэш Битрикса"
+cache_options=("files" "none")
+if [[ "$WANT_REDIS" -eq 1 ]]; then cache_options+=("redis"); fi
+if [[ "$WANT_MEMCACHED" -eq 1 ]]; then cache_options+=("memcache"); fi
+if [[ -n "$CACHE_V" ]]; then
+    case "$CACHE_V" in
+        redis)    [[ "$WANT_REDIS" -eq 1 ]] || die "--cache redis требует --redis." ;;
+        memcache) [[ "$WANT_MEMCACHED" -eq 1 ]] || die "--cache memcache требует --memcached." ;;
+    esac
+    info "Кэш: ${CACHE_V}"
+else
+    CACHE_CHOICE=""
+    ask_menu CACHE_CHOICE "Где хранить кэш?" 1 "${cache_options[@]}"
+    CACHE_V="${cache_options[$((CACHE_CHOICE - 1))]}"
+fi
+
+section "Сессии"
+session_options=("file" "database")
+if [[ "$WANT_REDIS" -eq 1 ]]; then session_options+=("redis"); fi
+if [[ "$WANT_MEMCACHED" -eq 1 ]]; then session_options+=("memcache"); fi
+if [[ -n "$SESSION_V" ]]; then
+    case "$SESSION_V" in
+        redis)    [[ "$WANT_REDIS" -eq 1 ]] || die "--session redis требует --redis." ;;
+        memcache) [[ "$WANT_MEMCACHED" -eq 1 ]] || die "--session memcache требует --memcached." ;;
+    esac
+    info "Сессии: ${SESSION_V}"
+else
+    SESSION_CHOICE=""
+    ask_menu SESSION_CHOICE "Где хранить сессии?" 1 "${session_options[@]}"
+    SESSION_V="${session_options[$((SESSION_CHOICE - 1))]}"
+fi
+
+# --- Демо-данные -----------------------------------------------------------------
+if [[ "$TARGET" == "hosting" ]]; then
+    if [[ "$STRIP_DEMO" == "0" ]]; then
+        die "--keep-demo недоступен для хостинга: на проде демо-данные удаляются всегда."
+    fi
+    STRIP_DEMO=1
+    info "Продовая установка: демо-срез (Example, /api/example, /api/test, ping) будет удалён."
+else
+    section "Демо-данные"
+    ask_yn STRIP_DEMO "Удалить демо-срез (Example, /api/example, /api/test, команда ping)?" n
+fi
+
+# --- Git ---------------------------------------------------------------------------
+section "Git"
+ask_yn GIT_INIT "Сделать git init и первый коммит?" y
+
+# ---------------------------------------------------------------------------
+# Резюме и подтверждение
+# ---------------------------------------------------------------------------
+
+summary_line() { printf '  %s%-14s%s %s\n' "$C_DIM" "$1" "$C_RESET" "$2"; }
+
+say ""
+say "${C_TITLE}Итого:${C_RESET}"
+if [[ "$TARGET" == "local" ]]; then
+    summary_line "Цель:" "локалка / свой сервер (dl)"
+    summary_line "Каталог:" "${PROJECT_DIR}"
+    summary_line "БД:" "${DB} ${DB_VERSION}"
+else
+    summary_line "Цель:" "shared-хостинг"
+    summary_line "Docroot:" "${DOCROOT}"
+    summary_line "БД:" "${DB} (из bitrix/.settings.php)"
+fi
+summary_line "Проект:" "${VENDOR}/${NAME} (модуль ${VENDOR}.engine)"
+summary_line "HOST_NAME:" "${HOST_NAME_V}"
+summary_line "Redis:" "$(if [[ "$WANT_REDIS" -eq 1 ]]; then echo да; else echo нет; fi)"
+summary_line "Memcached:" "$(if [[ "$WANT_MEMCACHED" -eq 1 ]]; then echo да; else echo нет; fi)"
+summary_line "Кэш/сессии:" "${CACHE_V} / ${SESSION_V}"
+summary_line "Демо-данные:" "$(if [[ "$STRIP_DEMO" -eq 1 ]]; then echo удалить; else echo оставить; fi)"
+summary_line "Git:" "$(if [[ "$GIT_INIT" -eq 1 ]]; then echo "init + первый коммит"; else echo нет; fi)"
+say ""
+
+if [[ "$INTERACTIVE" -eq 1 && "$ASSUME_YES" -ne 1 ]]; then
+    CONFIRM=""
+    ask_yn CONFIRM "Поехали?" y
+    if [[ "$CONFIRM" -ne 1 ]]; then
+        say "Отменено. Ничего не изменено."
+        exit 0
+    fi
+fi
+
+# ---------------------------------------------------------------------------
+# Выполнение
+# ---------------------------------------------------------------------------
+
+STEP_N=0
+STEP_TOTAL=3
+if [[ "$MODE" == "remote" ]]; then STEP_TOTAL=$((STEP_TOTAL + 1)); fi
+if [[ "$STRIP_DEMO" -eq 1 ]]; then STEP_TOTAL=$((STEP_TOTAL + 1)); fi
+if [[ "$GIT_INIT" -eq 1 ]]; then STEP_TOTAL=$((STEP_TOTAL + 1)); fi
+RENAMED_MODULE_PREEXISTED=0
+
+step() {
+    STEP_N=$((STEP_N + 1))
+    CURRENT_STEP="$1"
+    printf '\n%s\n' "${C_TITLE}[${STEP_N}/${STEP_TOTAL}] $1${C_RESET}"
+}
+
+# Перед установкой в существующий каталог запоминаем, что в нём уже было:
+# новое при ошибке удаляем, перезаписанное — восстанавливаем из бэкапа.
+protect_existing_dir() { # protect_existing_dir <src> <dest> <public_to_root:0|1>
+    local src="$1" dest="$2" public_to_root="$3" name
+    mkdir -p "$TMP_DIR/backup"
+    local names=()
+    if [[ -d "$src/.git" ]]; then
+        # Только то, что реально скопирует install.sh (без ignored: vendor, bitrix, .env).
+        while IFS= read -r name; do
+            names+=("$name")
+        done < <(cd "$src" && git ls-files -co --exclude-standard | cut -d/ -f1 | sort -u)
+    else
+        while IFS= read -r name; do
+            if [[ "$name" != ".git" ]]; then
+                names+=("$name")
+            fi
+        done < <(ls -A "$src")
+    fi
+    if [[ "$public_to_root" -eq 1 && -d "$src/public" ]]; then
+        while IFS= read -r name; do
+            names+=("$(basename "$name")")
+        done < <(find "$src/public" -mindepth 1 -maxdepth 1 -type f)
+    fi
+    # Файлы, которые появятся позже на шагах мастера, — тоже под откат.
+    names+=(".env" "local/.settings.php" "local/php_interface/dbconn.php")
+    for name in "${names[@]}"; do
+        if [[ -e "$dest/$name" || -L "$dest/$name" ]]; then
+            mkdir -p "$TMP_DIR/backup/$(dirname "$name")"
+            if [[ ! -e "$TMP_DIR/backup/$name" ]]; then
+                cp -a "$dest/$name" "$TMP_DIR/backup/$name"
+                RESTORE_PAIRS+=("$TMP_DIR/backup/$name|$dest/$name")
+            fi
+        else
+            CLEANUP_PATHS+=("$dest/$name")
+        fi
+    done
+}
+
+# --- Шаг: файлы болванки -------------------------------------------------------
+if [[ "$MODE" == "remote" ]]; then
+    step "Установка файлов болванки"
+    if [[ -n "$SOURCE_DIR" ]]; then
+        SRC="$(cd "$SOURCE_DIR" && pwd -P)"
+        info "Источник: ${SRC}"
+    else
+        info "git clone --depth 1 --branch ${REF} ${REPO_URL}"
+        git clone --quiet --depth 1 --branch "$REF" "$REPO_URL" "$TMP_DIR/src"
+        SRC="$TMP_DIR/src"
+    fi
+
+    install_target="$PROJECT_DIR"
+    if [[ "$TARGET" == "hosting" ]]; then
+        install_target="$DOCROOT"
+    fi
+    if [[ "$VENDOR" != "vendor" && -d "$install_target/local/modules/${VENDOR}.engine" ]]; then
+        RENAMED_MODULE_PREEXISTED=1
+    fi
+
+    if [[ "$TARGET" == "local" ]]; then
+        if [[ -e "$PROJECT_DIR" ]]; then
+            protect_existing_dir "$SRC" "$PROJECT_DIR" 0
+            bash "$SRC/scripts/install.sh" --from-dir "$SRC" --dir "$PROJECT_DIR" --force
+        else
+            PROJECT_DIR_CREATED="$PROJECT_DIR"
+            bash "$SRC/scripts/install.sh" --from-dir "$SRC" --dir "$PROJECT_DIR"
+        fi
+        PROJECT_ROOT="$PROJECT_DIR"
+    else
+        protect_existing_dir "$SRC" "$DOCROOT" 1
+        bash "$SRC/scripts/install.sh" --from-dir "$SRC" --dir "$DOCROOT" --public-dir . --force
+        PROJECT_ROOT="$DOCROOT"
+    fi
+    ok "Файлы разложены: ${PROJECT_ROOT}"
+else
+    # repo/composer: файлы уже на месте, под откат берём только то, что будем менять.
+    for rel in composer.json composer.lock console tests local/modules/vendor.engine \
+               local/.settings.php local/php_interface/dbconn.php .env; do
+        if [[ -e "$PROJECT_ROOT/$rel" ]]; then
+            mkdir -p "$TMP_DIR/backup/$(dirname "$rel")"
+            cp -a "$PROJECT_ROOT/$rel" "$TMP_DIR/backup/$rel"
+            RESTORE_PAIRS+=("$TMP_DIR/backup/$rel|$PROJECT_ROOT/$rel")
+        else
+            CLEANUP_PATHS+=("$PROJECT_ROOT/$rel")
+        fi
+    done
+    if [[ "$VENDOR" != "vendor" ]]; then
+        CLEANUP_PATHS+=("$PROJECT_ROOT/local/modules/${VENDOR}.engine")
+    fi
+fi
+
+cd "$PROJECT_ROOT"
+
+# --- Шаг: .env -------------------------------------------------------------------
+step "Генерация .env"
+
+env_set() { # env_set KEY VALUE — раскомментирует ключ и ставит значение (или добавляет в конец)
+    local key="$1" value="$2"
+    awk -v key="$key" -v val="$value" '
+        BEGIN { done = 0 }
+        !done && $0 ~ ("^[#[:space:]]*" key "=") { print key "=" val; done = 1; next }
+        { print }
+        END { if (!done) print key "=" val }
+    ' .env > .env.bootstrap.tmp && mv .env.bootstrap.tmp .env
+}
+
+env_comment() { # env_comment KEY — закомментировать ключ
+    local key="$1"
+    awk -v key="$key" '
+        $0 ~ ("^" key "=") { print "# " $0; next }
+        { print }
+    ' .env > .env.bootstrap.tmp && mv .env.bootstrap.tmp .env
+}
+
+SKIP_ENV=0
+if [[ -f .env ]]; then
+    if [[ "$FORCE" -eq 1 || "$ASSUME_YES" -eq 1 ]]; then
+        warn ".env уже существует — перезаписываю (при ошибке вернётся из бэкапа)."
+    else
+        OVERWRITE_ENV=""
+        ask_yn OVERWRITE_ENV ".env уже существует. Перезаписать ответами мастера?" n
+        if [[ "$OVERWRITE_ENV" -ne 1 ]]; then
+            SKIP_ENV=1
+            warn "Оставляю существующий .env — настройки возьмутся из него."
+        fi
+    fi
+fi
+
+if [[ "$SKIP_ENV" -eq 0 ]]; then
+    cp .env.example .env
+
+    env_set PROJECT_NAME "${VENDOR}/${NAME}"
+    env_set HOST_NAME "${HOST_NAME_V}"
+
+    if [[ "$TARGET" == "hosting" ]]; then
+        env_set APP_ENV "production"
+        env_set APP_DEBUG "false"
+        env_set DOCUMENT_ROOT "${DOCROOT}"
+    else
+        env_set APP_ENV "local"
+        env_set APP_DEBUG "true"
+        case "$DB" in
+            mysql)
+                env_set MYSQL_VERSION "${DB_VERSION}"
+                ;;
+            pgsql)
+                env_comment MYSQL_VERSION
+                env_set POSTGRES_VERSION "${DB_VERSION}"
+                env_set POSTGRES_DB "db"
+                env_set POSTGRES_USER "db"
+                env_set POSTGRES_PASSWORD "db"
+                ;;
+            mariadb)
+                env_comment MYSQL_VERSION
+                env_set MARIADB_VERSION "${DB_VERSION}"
+                ;;
+        esac
+        php_modules="opcache"
+        if [[ "$WANT_REDIS" -eq 1 ]]; then php_modules+=" redis"; fi
+        if [[ "$WANT_MEMCACHED" -eq 1 ]]; then php_modules+=" memcached"; fi
+        env_set PHP_MODULES "\"${php_modules}\""
+    fi
+
+    if [[ "$WANT_REDIS" -eq 1 ]]; then
+        env_set REDIS "true"
+        if [[ -n "$REDIS_HOST_V" ]]; then env_set REDIS_HOST "$REDIS_HOST_V"; fi
+        if [[ -n "$REDIS_PORT_V" ]]; then env_set REDIS_PORT "$REDIS_PORT_V"; fi
+    fi
+    if [[ "$WANT_MEMCACHED" -eq 1 ]]; then
+        env_set MEMCACHED "true"
+        if [[ -n "$MEMCACHED_HOST_V" ]]; then env_set MEMCACHED_HOST "$MEMCACHED_HOST_V"; fi
+        if [[ -n "$MEMCACHED_PORT_V" ]]; then env_set MEMCACHED_PORT "$MEMCACHED_PORT_V"; fi
+    fi
+
+    env_set CACHE "${CACHE_V}"
+    env_set SESSION "${SESSION_V}"
+    connections="${DB}"
+    if [[ "$WANT_REDIS" -eq 1 ]]; then connections+=",redis"; fi
+    if [[ "$WANT_MEMCACHED" -eq 1 ]]; then connections+=",memcache"; fi
+    env_set CONNECTIONS "[${connections}]"
+
+    if [[ "$PHP_BIN" != "php" ]]; then
+        env_set PHP_BIN "$PHP_BIN"
+    fi
+
+    ok ".env создан."
+fi
+
+# --- Шаг: демо-данные ---------------------------------------------------------------
+if [[ "$STRIP_DEMO" -eq 1 ]]; then
+    step "Удаление демо-данных"
+    if [[ -d local/modules/vendor.engine ]]; then
+        "$PHP_BIN" scripts/strip-demo.php
+        ok "Демо-срез удалён, каркас модуля сохранён."
+    else
+        info "Модуль vendor.engine не найден (уже переименован или очищен) — пропускаю."
+    fi
+fi
+
+if [[ "$RENAMED_MODULE_PREEXISTED" -eq 1 && -d "local/modules/${VENDOR}.engine" && -d local/modules/vendor.engine ]]; then
+    info "Модуль ${VENDOR}.engine уже был в проекте — убираю повторно скопированный vendor.engine."
+    rm -rf local/modules/vendor.engine
+    PROJECT_VENDOR="$VENDOR" "$PHP_BIN" -r '
+        $vendor = getenv("PROJECT_VENDOR");
+        $namespaceVendor = str_replace(" ", "", ucwords(str_replace(["-", "_"], " ", $vendor)));
+        $composerFile = "composer.json";
+        $json = json_decode(file_get_contents($composerFile), true, 512, JSON_THROW_ON_ERROR);
+        if (isset($json["autoload"]["psr-4"]["Vendor\\Engine\\"])) {
+            unset($json["autoload"]["psr-4"]["Vendor\\Engine\\"]);
+            $json["autoload"]["psr-4"][$namespaceVendor . "\\Engine\\"] = "local/modules/" . $vendor . ".engine/lib";
+            file_put_contents(
+                $composerFile,
+                json_encode($json, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) . PHP_EOL
+            );
+        }
+    '
+fi
+
+# --- Шаг: init ----------------------------------------------------------------------
+step "Инициализация проекта (scripts/init)"
+INIT_ARGS=()
+if [[ -f local/.settings.php ]]; then
+    INIT_ARGS=(--force)
+fi
+PHP_BIN="$PHP_BIN" bash scripts/init "${INIT_ARGS[@]}"
+
+# --- Шаг: composer --------------------------------------------------------------------
+step "Composer-зависимости"
+if [[ ! -d vendor ]]; then
+    CLEANUP_PATHS+=("$PROJECT_ROOT/vendor")
+fi
+if [[ "$MODE" == "composer" ]]; then
+    # create-project уже поставил зависимости — только пересобираем автозагрузку
+    # после переименования модуля.
+    composer_cmd dump-autoload --quiet
+    ok "Автозагрузка пересобрана."
+elif [[ "$TARGET" == "hosting" ]]; then
+    composer_cmd install --no-dev --optimize-autoloader --no-interaction
+    ok "Зависимости установлены (--no-dev)."
+else
+    composer_cmd install --no-interaction
+    ok "Зависимости установлены."
+fi
+
+# --- Шаг: git ---------------------------------------------------------------------------
+if [[ "$GIT_INIT" -eq 1 ]]; then
+    step "Git-репозиторий"
+    if [[ -d .git ]]; then
+        info "Каталог уже под git — пропускаю init и коммит."
+    else
+        CLEANUP_PATHS+=("$PROJECT_ROOT/.git")
+        git init --quiet
+        git symbolic-ref HEAD refs/heads/main
+        if ! git check-ignore -q .env; then
+            die ".env не игнорируется git (.gitignore повреждён?) — коммитить опасно, останавливаюсь."
+        fi
+        git add -A
+        GIT_ID_ARGS=()
+        if ! git config user.email >/dev/null || ! git config user.name >/dev/null; then
+            warn "git identity не настроен — коммичу как «Bootstrap <bootstrap@localhost>». Настройте: git config --global user.name / user.email"
+            GIT_ID_ARGS=(-c user.name=Bootstrap -c user.email=bootstrap@localhost)
+        fi
+        git "${GIT_ID_ARGS[@]}" commit --quiet -m "Initial commit from bitrix-boilerplate"
+        ok "Создан репозиторий, первый коммит: $(git log --oneline -1)"
+    fi
+fi
+
+# ---------------------------------------------------------------------------
+# Финал
+# ---------------------------------------------------------------------------
+
+trap - ERR INT TERM
+CURRENT_STEP=""
+
+say ""
+printf '%s\n' "${C_GREEN}┌──────────────────────────────────────────────────────────────┐${C_RESET}"
+printf '%s\n' "${C_GREEN}│${C_RESET} ${C_GREEN}Готово!${C_RESET} Проект ${VENDOR}/${NAME} установлен."
+printf '%s\n' "${C_GREEN}│${C_RESET} Каталог: ${PROJECT_ROOT}"
+printf '%s\n' "${C_GREEN}│${C_RESET} Модуль:  local/modules/${VENDOR}.engine"
+printf '%s\n' "${C_GREEN}└──────────────────────────────────────────────────────────────┘${C_RESET}"
+say ""
+say "${C_TITLE}Что дальше:${C_RESET}"
+if [[ "$TARGET" == "local" ]]; then
+    say "  1. cd ${PROJECT_ROOT}"
+    say "  2. dl up                    ${C_DIM}# поднять контейнеры${C_RESET}"
+    say "  3. Установите ядро Битрикса:"
+    say "     dl deploy                ${C_DIM}# если прод-сервер прописан в .env${C_RESET}"
+    say "     ./scripts/setup          ${C_DIM}# или скачать bitrixsetup.php и пройти установку в браузере${C_RESET}"
+    say "  4. dl exec vendor/bin/phinx migrate -c phinx.php    ${C_DIM}# миграции${C_RESET}"
+else
+    say "  1. Прогоните миграции: ${PHP_BIN} vendor/bin/phinx migrate -c phinx.php"
+    if [[ "$GIT_INIT" -eq 1 ]]; then
+        say "  2. Привяжите репозиторий проекта: git remote add origin <url> && git push -u origin main"
+    fi
+fi
+say ""
+say "Документация API после установки модуля: /api/doc"

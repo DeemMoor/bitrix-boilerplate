@@ -15,6 +15,9 @@ After bootstrap: copy .env.example to .env, edit it, then run ./scripts/init.
 
 Options:
   --repo-url URL   Git repository URL of the boilerplate repository.
+  --from-dir DIR   Copy the boilerplate from a local directory instead of
+                   cloning. Only git-visible files are copied (tracked and
+                   untracked, ignored files are skipped). Overrides --repo-url.
   --ref REF        Optional branch, tag, or commit to checkout. Default: master
   --dir DIR        Target project directory, resolved relative to the current
                    directory. Run the script from the parent of the target dir
@@ -29,6 +32,7 @@ EOF
 }
 
 REPO_URL=""
+FROM_DIR=""
 REF="master"
 TARGET_DIR=""
 PUBLIC_DIR="public"
@@ -38,6 +42,10 @@ while [[ $# -gt 0 ]]; do
     case "$1" in
         --repo-url)
             REPO_URL="${2:-}"
+            shift 2
+            ;;
+        --from-dir)
+            FROM_DIR="${2:-}"
             shift 2
             ;;
         --ref)
@@ -73,9 +81,14 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
-if [[ -z "$REPO_URL" ]]; then
-    echo "--repo-url is required." >&2
+if [[ -z "$REPO_URL" && -z "$FROM_DIR" ]]; then
+    echo "--repo-url or --from-dir is required." >&2
     usage >&2
+    exit 1
+fi
+
+if [[ -n "$FROM_DIR" && ! -d "$FROM_DIR" ]]; then
+    echo "--from-dir: directory not found: $FROM_DIR" >&2
     exit 1
 fi
 
@@ -177,11 +190,23 @@ cleanup() {
 }
 trap cleanup EXIT
 
-echo "Cloning boilerplate repository..."
-git clone --depth 1 --branch "$REF" "$REPO_URL" "$TMP_DIR/repo"
+if [[ -n "$FROM_DIR" ]]; then
+    SRC_DIR="$(cd "$FROM_DIR" && pwd -P)"
+else
+    echo "Cloning boilerplate repository..."
+    git clone --depth 1 --branch "$REF" "$REPO_URL" "$TMP_DIR/repo"
+    SRC_DIR="$TMP_DIR/repo"
+fi
 
 echo "Installing project to $TARGET_DIR..."
-cp -R "$TMP_DIR/repo/." "$TARGET_DIR/"
+if [[ -d "$SRC_DIR/.git" ]]; then
+    # Копируем только видимые git'у файлы (tracked + untracked без ignored):
+    # это отсекает vendor/, bitrix/, .env и прочий локальный мусор источника.
+    (cd "$SRC_DIR" && git ls-files -coz --exclude-standard \
+        | tar --null --ignore-failed-read -cf - -T -) | tar -xpf - -C "$TARGET_DIR"
+else
+    cp -R "$SRC_DIR/." "$TARGET_DIR/"
+fi
 rm -rf "$TARGET_DIR/.git"
 prepare_public_dir
 

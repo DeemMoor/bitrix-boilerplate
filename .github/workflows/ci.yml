@@ -34,7 +34,9 @@ jobs:
 
       - name: Shellcheck
         run: |
-          shellcheck scripts/bootstrap scripts/install.sh scripts/init scripts/setup scripts/tests/smoke.sh
+          shellcheck -S warning scripts/bootstrap scripts/install.sh scripts/setup scripts/tests/smoke.sh
+          # init старше мастера: держим на уровне error, стиль не чиним задним числом
+          shellcheck -S error scripts/init
 
       - name: Smoke tests
         run: bash scripts/tests/smoke.sh

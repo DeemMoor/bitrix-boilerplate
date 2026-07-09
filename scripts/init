@@ -643,7 +643,9 @@ rename_engine_module
 
 echo "[INFO] Генерируем local/.settings.php по .env..."
 
-cat > "${SETTINGS_FILE}" <<PHP
+# Пишем через tmp+mv: перезапись файла на месте ломает hardlink-бэкапы
+# (их делает scripts/bootstrap для отката при ошибке).
+cat > "${SETTINGS_FILE}.tmp" <<PHP
 <?php
 
 ${USE_BLOCK}
@@ -698,6 +700,7 @@ ${CONNECTIONS_BLOCK}
     ],
 ];
 PHP
+mv "${SETTINGS_FILE}.tmp" "${SETTINGS_FILE}"
 
 if [ ! -f "${DBCONN_FILE}" ]; then
     cp "${PROJECT_ROOT}/local/php_interface/dbconn.php.example" "${DBCONN_FILE}"

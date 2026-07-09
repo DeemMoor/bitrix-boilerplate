@@ -10,8 +10,8 @@
 #
 # После composer create-project запускается автоматически (--from-composer).
 #
-# Мастер жёстко проверяет зависимости (git, PHP >= 8.4, composer, dl для
-# локалки, установленный Битрикс для хостинга) и при любой ошибке откатывает
+# Мастер жёстко проверяет зависимости (git; для локалки — dl; для server/hosting —
+# PHP >= 8.4, composer и установленный Битрикс) и при любой ошибке откатывает
 # всё, что успел создать, — хвостов не остаётся.
 
 set -Eeuo pipefail
@@ -51,17 +51,12 @@ die() {
 }
 
 banner() {
-    printf '%s' "${C_TITLE}"
-    cat <<'EOF'
-  ____  _ _        _        ____        _ _                 _       _
- | __ )(_) |_ _ __(_)_  __ | __ )  ___ (_) | ___ _ __ _ __ | | __ _| |_ ___
- |  _ \| | __| '__| \ \/ / |  _ \ / _ \| | |/ _ \ '__| '_ \| |/ _` | __/ _ \
- | |_) | | |_| |  | |>  <  | |_) | (_) | | |  __/ |  | |_) | | (_| | ||  __/
- |____/|_|\__|_|  |_/_/\_\ |____/ \___/|_|_|\___|_|  | .__/|_|\__,_|\__\___|
-                                                     |_|
-EOF
-    printf '%s\n' "${C_RESET}"
+    printf '%s\n' "${C_TITLE}╔══════════════════════════════════════════════╗${C_RESET}"
+    printf '%s\n' "${C_TITLE}║${C_RESET}  ${C_GREEN}Bitrix Boilerplate${C_RESET}                         ${C_TITLE}║${C_RESET}"
+    printf '%s\n' "${C_TITLE}║${C_RESET}  интерактивная установка проекта           ${C_TITLE}║${C_RESET}"
+    printf '%s\n' "${C_TITLE}╚══════════════════════════════════════════════╝${C_RESET}"
 }
+
 
 QUESTION_N=1
 QUESTION_TOTAL=8
@@ -167,10 +162,33 @@ ask_menu() {
 
 TMP_DIR="$(mktemp -d)"
 CLEANUP_PATHS=()        # созданные мастером файлы/каталоги — удалить при ошибке
-RESTORE_PAIRS=()        # "backup|original" — вернуть перезаписанное при ошибке
+RESTORE_PAIRS=()        # "backup|original" — вернуть перезаписанный файл при ошибке (cp)
+FULL_RESTORE_PAIRS=()   # "backup|original" — вернуть целый каталог при ошибке (mv)
+BACKUP_DIRS=()          # каталоги-бэкапы — удалить при любом исходе
+BACKUP_SEQ=0
 PROJECT_DIR_CREATED=""  # каталог, созданный мастером целиком, — снести при ошибке
 CURRENT_STEP=""
 CLEANUP_DONE=0
+
+# Полный бэкап каталога для отката. Кладём рядом на том же ФС: cp -al
+# (мгновенные hardlink'и, без расхода места) — ядро Битрикса на хостинге может
+# весить гигабайты, и копировать его в /tmp (часто tmpfs с квотой) нельзя.
+full_dir_backup() { # full_dir_backup <dir>
+    local dir="$1" parent backup
+    parent="$(dirname "$dir")"
+    BACKUP_SEQ=$((BACKUP_SEQ + 1))
+    if [[ -w "$parent" ]]; then
+        backup="$parent/.bootstrap-rollback.$$.$BACKUP_SEQ"
+    else
+        backup="$TMP_DIR/rollback.$BACKUP_SEQ"
+    fi
+    if ! cp -al "$dir" "$backup" 2>/dev/null; then
+        rm -rf "$backup"
+        cp -a "$dir" "$backup"
+    fi
+    BACKUP_DIRS+=("$backup")
+    FULL_RESTORE_PAIRS+=("$backup|$dir")
+}
 
 cleanup_on_fail() {
     if [[ "$CLEANUP_DONE" -eq 1 ]]; then
@@ -180,26 +198,34 @@ cleanup_on_fail() {
     local path pair
     if [[ -z "$PROJECT_DIR_CREATED" \
           && "${#CLEANUP_PATHS[@]}" -eq 0 \
-          && "${#RESTORE_PAIRS[@]}" -eq 0 ]]; then
+          && "${#RESTORE_PAIRS[@]}" -eq 0 \
+          && "${#FULL_RESTORE_PAIRS[@]}" -eq 0 ]]; then
         return # ничего ещё не создали — чистить нечего
     fi
     warn "Подчищаю за собой..."
+    cd /
     if [[ -n "$PROJECT_DIR_CREATED" ]]; then
-        cd /
         rm -rf "$PROJECT_DIR_CREATED"
         info "Удалён каталог: $PROJECT_DIR_CREATED"
-    else
-        for path in "${CLEANUP_PATHS[@]}"; do
-            if [[ -e "$path" || -L "$path" ]]; then
-                rm -rf "$path"
-            fi
-        done
-        for pair in "${RESTORE_PAIRS[@]}"; do
+    fi
+    for path in ${CLEANUP_PATHS[@]+"${CLEANUP_PATHS[@]}"}; do
+        if [[ -e "$path" || -L "$path" ]]; then
+            rm -rf "$path"
+        fi
+    done
+    for pair in ${RESTORE_PAIRS[@]+"${RESTORE_PAIRS[@]}"}; do
+        if [[ -e "${pair%%|*}" ]]; then
             rm -rf "${pair##*|}"
             cp -a "${pair%%|*}" "${pair##*|}"
-        done
-        info "Созданные файлы удалены, перезаписанные восстановлены."
-    fi
+        fi
+    done
+    for pair in ${FULL_RESTORE_PAIRS[@]+"${FULL_RESTORE_PAIRS[@]}"}; do
+        if [[ -d "${pair%%|*}" ]]; then
+            rm -rf "${pair##*|}"
+            mv "${pair%%|*}" "${pair##*|}"
+        fi
+    done
+    info "Созданные файлы удалены, перезаписанные восстановлены."
 }
 
 on_error() {
@@ -218,6 +244,10 @@ on_exit() {
     if [[ "$status" -ne 0 ]]; then
         cleanup_on_fail
     fi
+    local backup
+    for backup in ${BACKUP_DIRS[@]+"${BACKUP_DIRS[@]}"}; do
+        rm -rf "$backup"
+    done
     rm -rf "$TMP_DIR"
 }
 
@@ -312,24 +342,25 @@ Bitrix Boilerplate — интерактивный установщик.
 Без флагов задаёт вопросы. Всё, что задано флагом, не спрашивается.
 
 Флаги:
-  --target local|hosting   Куда ставим: локалка (docker/dl) или shared-хостинг.
-  --dir DIR                Каталог проекта для локалки. По умолчанию: .
-  --public-dir DIR         Docroot хостинга, где уже установлен Битрикс. По умолчанию: public_html
+  --target local|server|hosting
+                           local = DL/Docker; server = свой сервер/VPS; hosting = shared-хостинг.
+  --dir DIR                Каталог проекта. По умолчанию для local/server: .; для hosting: app
+  --public-dir DIR         Docroot. server: public; hosting: public_html.
   --vendor NAME            Vendor: a-z, 0-9, _ (станет префиксом модуля <vendor>.engine).
   --name NAME              Имя пакета после vendor: a-z, 0-9, _, ., -
   --host-name NAME         HOST_NAME для .env. По умолчанию: название проекта.
-  --db mysql|pgsql|mariadb Тип базы (только локалка; на хостинге берётся из Битрикса).
+  --db mysql|pgsql|mariadb Тип базы (только local; на server/hosting берётся из Битрикса).
   --db-version V           Версия БД (по умолчанию: mysql 8.4, pgsql 18, mariadb lts).
   --redis                  Включить Redis.
   --memcached              Включить Memcached.
   --redis-host H / --redis-port P / --memcached-host H / --memcached-port P
-                           Адреса сервисов на хостинге. По умолчанию: 127.0.0.1.
+                           Адреса сервисов на server/hosting. По умолчанию: 127.0.0.1.
   --cache files|redis|memcache|none       Кэш Битрикса. По умолчанию: files
   --session file|database|redis|memcache  Сессии. По умолчанию: file
   --bitrix setup|deploy|skip  Локально: скачать bitrixsetup.php, выполнить dl deploy или пропустить.
   --server HOST / --server-user USER / --server-port PORT / --server-path PATH
                            Параметры .env для dl deploy.
-  --strip-demo | --keep-demo  Удалить/оставить демо-код (на хостинге удаляется всегда).
+  --strip-demo | --keep-demo  Удалить/оставить демо-код (на server/hosting удаляется всегда).
   --git | --no-git         Делать ли git init + первый коммит. По умолчанию: git.
   --force                  Разрешить установку в непустой каталог и перезапись .env.
   --yes                    Неинтерактивный режим: дефолты для всего незаданного.
@@ -338,8 +369,8 @@ Bitrix Boilerplate — интерактивный установщик.
   --from-composer          Служебный: запуск из composer create-project.
   -h, --help               Эта справка.
 
-Зависимости: всегда нужны bash >= 4 и git; для локалки нужен dl (PHP/Composer
-запускаются через dl exec); для хостинга/host-сервера нужны PHP >= ${PHP_MIN_VERSION},
+Зависимости: всегда нужны bash >= 4 и git; для local нужен dl (PHP/Composer
+запускаются через dl exec); для server/hosting нужны PHP >= ${PHP_MIN_VERSION},
 composer и уже установленный Битрикс в docroot.
 EOF
 }
@@ -422,7 +453,7 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
-case "$TARGET" in ''|local|hosting) ;; *) die "--target: допустимо local или hosting, получено «${TARGET}»." ;; esac
+case "$TARGET" in ''|local|server|hosting) ;; *) die "--target: допустимо local, server или hosting, получено «${TARGET}»." ;; esac
 case "$DB" in ''|mysql|pgsql|mariadb) ;; *) die "--db: допустимо mysql, pgsql или mariadb, получено «${DB}»." ;; esac
 case "$CACHE_V" in ''|files|redis|memcache|none) ;; *) die "--cache: допустимо files, redis, memcache или none." ;; esac
 case "$SESSION_V" in ''|file|database|redis|memcache) ;; *) die "--session: допустимо file, database, redis или memcache." ;; esac
@@ -462,12 +493,18 @@ check_base_deps
 
 TARGET_CHOICE=""
 if [[ "$TARGET" == "local" ]]; then TARGET_CHOICE=1; fi
-if [[ "$TARGET" == "hosting" ]]; then TARGET_CHOICE=2; fi
+if [[ "$TARGET" == "server" ]]; then TARGET_CHOICE=2; fi
+if [[ "$TARGET" == "hosting" ]]; then TARGET_CHOICE=3; fi
 printf '\n%s\n' "${C_TITLE}Куда ставим болванку?${C_RESET}"
 ask_menu TARGET_CHOICE "Вариант установки" 1 \
-    "Локалка или свой сервер (docker + dl, docroot = public/)" \
-    "Shared-хостинг (поверх уже установленного Битрикса)"
-if [[ "$TARGET_CHOICE" == "1" ]]; then TARGET="local"; else TARGET="hosting"; fi
+    "Локальная разработка (Docker + DL, docroot = public/)" \
+    "Свой сервер/VPS (docroot = public/, PHP/Composer на сервере)" \
+    "Shared-хостинг (public_html → public, поверх установленного Битрикса)"
+case "$TARGET_CHOICE" in
+    1) TARGET="local" ;;
+    2) TARGET="server" ;;
+    3) TARGET="hosting" ;;
+esac
 
 if [[ "$TARGET" == "local" ]]; then
     check_dl
@@ -482,42 +519,66 @@ fi
 
 # --- Каталог проекта / docroot ----------------------------------------------
 if [[ "$MODE" == "remote" ]]; then
-    if [[ "$TARGET" == "local" ]]; then
+    if [[ "$TARGET" == "hosting" ]]; then
+        section "Каталоги хостинга"
+        ask_value PROJECT_DIR "Каталог кода болванки (. = текущая папка, обычно app)" "app" '^[A-Za-z0-9._/-]+$' \
+            "Только буквы, цифры, точки, дефисы и подчёркивания."
+        ask_value DOCROOT "Public docroot хостинга с установленным Битриксом" "public_html" '' ''
+    else
         section "Каталог проекта"
         ask_value PROJECT_DIR "Куда установить файлы (. = текущая папка, или имя новой папки)" "." '^[A-Za-z0-9._/-]+$' \
             "Только буквы, цифры, точки, дефисы и подчёркивания."
-        if [[ "$PROJECT_DIR" != /* ]]; then
-            PROJECT_DIR="$PWD/${PROJECT_DIR%/}"
+        if [[ "$TARGET" == "server" ]]; then
+            ask_value DOCROOT "Docroot сервера с установленным Битриксом" "public" '' ''
         fi
-        if [[ -e "$PROJECT_DIR" ]]; then
-            if [[ ! -d "$PROJECT_DIR" ]]; then
-                die "Путь уже существует и это не каталог: ${PROJECT_DIR}."
-            fi
-            if [[ -n "$(find "$PROJECT_DIR" -mindepth 1 -maxdepth 1 -print -quit)" && "$FORCE" -ne 1 ]]; then
-                die "Каталог уже не пустой: ${PROJECT_DIR}." \
-                    "Выберите пустой каталог, новую папку или добавьте --force, если точно хотите писать поверх."
-            fi
+    fi
+
+    if [[ "$PROJECT_DIR" != /* ]]; then
+        PROJECT_DIR="$PWD/${PROJECT_DIR%/}"
+    fi
+    if [[ -e "$PROJECT_DIR" ]]; then
+        if [[ ! -d "$PROJECT_DIR" ]]; then
+            die "Путь уже существует и это не каталог: ${PROJECT_DIR}."
         fi
-    else
-        section "Каталог сайта"
-        docroot_default="public_html"
-        if [[ -f "./bitrix/.settings.php" ]]; then
-            docroot_default="."
+        # Канонизируем (например, --dir . даёт «/path/.»), иначе бэкап отката
+        # посчитает родителем сам каталог и попытается скопировать его в себя.
+        PROJECT_DIR="$(cd "$PROJECT_DIR" && pwd -P)"
+        if [[ "$TARGET" == "local" && -n "$(find "$PROJECT_DIR" -mindepth 1 -maxdepth 1 -print -quit)" && "$FORCE" -ne 1 ]]; then
+            die "Каталог уже не пустой: ${PROJECT_DIR}." \
+                "Выберите пустой каталог, новую папку или добавьте --force, если точно хотите писать поверх."
         fi
-        ask_value DOCROOT "Путь к docroot, где установлен Битрикс" "$docroot_default" '' ''
-        if [[ ! -d "$DOCROOT" ]]; then
-            die "Каталог не найден: ${DOCROOT}."
+    fi
+
+    if [[ "$TARGET" == "server" ]]; then
+        if [[ "$DOCROOT" != /* ]]; then
+            DOCROOT="$PROJECT_DIR/${DOCROOT%/}"
         fi
+        [[ -d "$DOCROOT" ]] || die "Каталог docroot не найден: ${DOCROOT}."
+        DOCROOT="$(cd "$DOCROOT" && pwd -P)"
+        check_bitrix_installed "$DOCROOT"
+    elif [[ "$TARGET" == "hosting" ]]; then
+        if [[ "$DOCROOT" != /* ]]; then
+            DOCROOT="$PWD/${DOCROOT%/}"
+        fi
+        [[ -d "$DOCROOT" ]] || die "Каталог docroot не найден: ${DOCROOT}."
         DOCROOT="$(cd "$DOCROOT" && pwd -P)"
         check_bitrix_installed "$DOCROOT"
     fi
 else
-    # repo/composer: ставимся в корень репозитория, где лежит сам скрипт.
-    if [[ "$TARGET" == "local" ]]; then
-        PROJECT_DIR="$PROJECT_ROOT"
-    else
-        DOCROOT="$PROJECT_ROOT"
+    # repo/composer: файлы уже в корне проекта.
+    PROJECT_DIR="$PROJECT_ROOT"
+    if [[ "$TARGET" == "server" ]]; then
+        DOCROOT="$PROJECT_ROOT/public"
         section "Каталог сайта"
+        check_bitrix_installed "$DOCROOT"
+    elif [[ "$TARGET" == "hosting" ]]; then
+        section "Каталог сайта"
+        ask_value DOCROOT "Public docroot хостинга с установленным Битриксом" "public_html" '' ''
+        if [[ "$DOCROOT" != /* ]]; then
+            DOCROOT="$PWD/${DOCROOT%/}"
+        fi
+        [[ -d "$DOCROOT" ]] || die "Каталог docroot не найден: ${DOCROOT}."
+        DOCROOT="$(cd "$DOCROOT" && pwd -P)"
         check_bitrix_installed "$DOCROOT"
     fi
 fi
@@ -525,7 +586,7 @@ fi
 # .env на месте установки: без --force в неинтерактивном режиме не перезаписываем.
 ENV_TARGET_DIR="$PROJECT_ROOT"
 if [[ "$MODE" == "remote" ]]; then
-    if [[ "$TARGET" == "local" ]]; then ENV_TARGET_DIR="$PROJECT_DIR"; else ENV_TARGET_DIR="$DOCROOT"; fi
+    ENV_TARGET_DIR="$PROJECT_DIR"
 fi
 if [[ -f "$ENV_TARGET_DIR/.env" && "$FORCE" -ne 1 && "$ASSUME_YES" -eq 1 ]]; then
     die "В ${ENV_TARGET_DIR} уже есть .env." "Добавьте --force, чтобы перезаписать его ответами мастера."
@@ -534,7 +595,7 @@ fi
 # --- Vendor и название -------------------------------------------------------
 section "Vendor и composer-name"
 default_name="project"
-if [[ "$TARGET" == "local" && -n "$PROJECT_DIR" ]]; then
+if [[ -n "$PROJECT_DIR" ]]; then
     default_name="$(basename "$PROJECT_DIR" | tr '[:upper:]' '[:lower:]' | tr -cd 'a-z0-9_.-')"
 elif [[ -n "$DOCROOT" ]]; then
     default_name="$(basename "$(dirname "$DOCROOT")" | tr '[:upper:]' '[:lower:]' | tr -cd 'a-z0-9_.-')"
@@ -569,7 +630,7 @@ if [[ "$TARGET" == "local" ]]; then
     ask_value DB_VERSION "Версия ${DB}" "$db_ver_default" '^[A-Za-z0-9.-]+$' "Например: ${db_ver_default}"
     info "Креды БД для локалки под dl: db/db/db (меняются в .env)."
 else
-    # На хостинге тип и креды БД init берёт из bitrix/.settings.php —
+    # На server/hosting тип и креды БД init берёт из bitrix/.settings.php —
     # вопросы не нужны, тип определяем сами только ради CONNECTIONS.
     if grep -q 'Pgsql' "$DOCROOT/bitrix/.settings.php" 2>/dev/null; then
         DB="pgsql"
@@ -605,7 +666,7 @@ fi
 section "Сервисы"
 ask_yn WANT_REDIS "Нужен Redis?" n
 ask_yn WANT_MEMCACHED "Нужен Memcached?" n
-if [[ "$TARGET" == "hosting" ]]; then
+if [[ "$TARGET" != "local" ]]; then
     if [[ "$WANT_REDIS" -eq 1 ]]; then
         ask_value REDIS_HOST_V "Хост Redis" "127.0.0.1" '^[A-Za-z0-9._/-]+$' ''
         ask_value REDIS_PORT_V "Порт Redis" "6379" '^[0-9]+$' "Число."
@@ -650,9 +711,9 @@ else
 fi
 
 # --- Демо-данные -----------------------------------------------------------------
-if [[ "$TARGET" == "hosting" ]]; then
+if [[ "$TARGET" != "local" ]]; then
     if [[ "$STRIP_DEMO" == "0" ]]; then
-        die "--keep-demo недоступен для хостинга: на проде демо-данные удаляются всегда."
+        die "--keep-demo недоступен для server/hosting: на проде демо-данные удаляются всегда."
     fi
     STRIP_DEMO=1
     info "Продовая установка: демо-срез (Example, /api/example, /api/test, ping) будет удалён."
@@ -674,7 +735,7 @@ summary_line() { printf '  %s%-14s%s %s\n' "$C_DIM" "$1" "$C_RESET" "$2"; }
 say ""
 say "${C_TITLE}Итого:${C_RESET}"
 if [[ "$TARGET" == "local" ]]; then
-    summary_line "Цель:" "локалка / свой сервер (dl)"
+    summary_line "Цель:" "локальная разработка (DL)"
     summary_line "Каталог:" "${PROJECT_DIR}"
     summary_line "БД:" "${DB} ${DB_VERSION}"
     case "$BITRIX_SOURCE" in
@@ -682,9 +743,15 @@ if [[ "$TARGET" == "local" ]]; then
         deploy) summary_line "Битрикс:" "dl deploy с ${SERVER_V}" ;;
         skip) summary_line "Битрикс:" "пропустить" ;;
     esac
+elif [[ "$TARGET" == "server" ]]; then
+    summary_line "Цель:" "свой сервер/VPS"
+    summary_line "Каталог:" "${PROJECT_DIR}"
+    summary_line "Docroot:" "${DOCROOT}"
+    summary_line "БД:" "${DB} (из bitrix/.settings.php)"
 else
     summary_line "Цель:" "shared-хостинг"
-    summary_line "Docroot:" "${DOCROOT}"
+    summary_line "Каталог:" "${PROJECT_DIR}"
+    summary_line "Docroot:" "${DOCROOT} → ${PROJECT_DIR}/public"
     summary_line "БД:" "${DB} (из bitrix/.settings.php)"
 fi
 summary_line "Проект:" "${VENDOR}/${NAME} (модуль ${VENDOR}.engine)"
@@ -724,44 +791,6 @@ step() {
     printf '\n%s\n' "${C_TITLE}[${STEP_N}/${STEP_TOTAL}] $1${C_RESET}"
 }
 
-# Перед установкой в существующий каталог запоминаем, что в нём уже было:
-# новое при ошибке удаляем, перезаписанное — восстанавливаем из бэкапа.
-protect_existing_dir() { # protect_existing_dir <src> <dest> <public_to_root:0|1>
-    local src="$1" dest="$2" public_to_root="$3" name
-    mkdir -p "$TMP_DIR/backup"
-    local names=()
-    if [[ -d "$src/.git" ]]; then
-        # Только то, что реально скопирует install.sh (без ignored: vendor, bitrix, .env).
-        while IFS= read -r name; do
-            names+=("$name")
-        done < <(cd "$src" && git ls-files -co --exclude-standard | cut -d/ -f1 | sort -u)
-    else
-        while IFS= read -r name; do
-            if [[ "$name" != ".git" ]]; then
-                names+=("$name")
-            fi
-        done < <(ls -A "$src")
-    fi
-    if [[ "$public_to_root" -eq 1 && -d "$src/public" ]]; then
-        while IFS= read -r name; do
-            names+=("$(basename "$name")")
-        done < <(find "$src/public" -mindepth 1 -maxdepth 1 -type f)
-    fi
-    # Файлы, которые появятся позже на шагах мастера, — тоже под откат.
-    names+=(".env" "local/.settings.php" "local/php_interface/dbconn.php")
-    for name in "${names[@]}"; do
-        if [[ -e "$dest/$name" || -L "$dest/$name" ]]; then
-            mkdir -p "$TMP_DIR/backup/$(dirname "$name")"
-            if [[ ! -e "$TMP_DIR/backup/$name" ]]; then
-                cp -a "$dest/$name" "$TMP_DIR/backup/$name"
-                RESTORE_PAIRS+=("$TMP_DIR/backup/$name|$dest/$name")
-            fi
-        else
-            CLEANUP_PATHS+=("$dest/$name")
-        fi
-    done
-}
-
 # --- Шаг: файлы болванки -------------------------------------------------------
 if [[ "$MODE" == "remote" ]]; then
     step "Установка файлов болванки"
@@ -774,28 +803,32 @@ if [[ "$MODE" == "remote" ]]; then
         SRC="$TMP_DIR/src"
     fi
 
-    install_target="$PROJECT_DIR"
-    if [[ "$TARGET" == "hosting" ]]; then
-        install_target="$DOCROOT"
-    fi
-    if [[ "$VENDOR" != "vendor" && -d "$install_target/local/modules/${VENDOR}.engine" ]]; then
+    if [[ "$VENDOR" != "vendor" && -d "$PROJECT_DIR/local/modules/${VENDOR}.engine" ]]; then
         RENAMED_MODULE_PREEXISTED=1
     fi
 
-    if [[ "$TARGET" == "local" ]]; then
-        if [[ -e "$PROJECT_DIR" ]]; then
-            protect_existing_dir "$SRC" "$PROJECT_DIR" 0
-            bash "$SRC/scripts/install.sh" --from-dir "$SRC" --dir "$PROJECT_DIR" --force
-        else
-            PROJECT_DIR_CREATED="$PROJECT_DIR"
-            bash "$SRC/scripts/install.sh" --from-dir "$SRC" --dir "$PROJECT_DIR"
-        fi
-        PROJECT_ROOT="$PROJECT_DIR"
+    # Откат: новый каталог сносим целиком, существующий (и docroot хостинга,
+    # откуда переезжают bitrix/upload) возвращаем из полного бэкапа.
+    INSTALL_ARGS=()
+    if [[ -e "$PROJECT_DIR" ]]; then
+        full_dir_backup "$PROJECT_DIR"
+        INSTALL_ARGS+=(--force)
     else
-        protect_existing_dir "$SRC" "$DOCROOT" 1
-        bash "$SRC/scripts/install.sh" --from-dir "$SRC" --dir "$DOCROOT" --public-dir . --force
-        PROJECT_ROOT="$DOCROOT"
+        PROJECT_DIR_CREATED="$PROJECT_DIR"
     fi
+
+    if [[ "$TARGET" == "local" ]]; then
+        bash "$SRC/scripts/install.sh" --from-dir "$SRC" --dir "$PROJECT_DIR" \
+            ${INSTALL_ARGS[@]+"${INSTALL_ARGS[@]}"}
+    elif [[ "$TARGET" == "server" ]]; then
+        bash "$SRC/scripts/install.sh" --from-dir "$SRC" --dir "$PROJECT_DIR" \
+            --link-public-dir --force
+    else
+        full_dir_backup "$DOCROOT"
+        bash "$SRC/scripts/install.sh" --from-dir "$SRC" --dir "$PROJECT_DIR" \
+            --public-dir "$DOCROOT" --link-public-dir --force
+    fi
+    PROJECT_ROOT="$PROJECT_DIR"
     ok "Файлы разложены: ${PROJECT_ROOT}"
 else
     # repo/composer: файлы уже на месте, под откат берём только то, что будем менять.
@@ -852,7 +885,9 @@ if [[ -f .env ]]; then
 fi
 
 if [[ "$SKIP_ENV" -eq 0 ]]; then
-    cp .env.example .env
+    # Пишем через tmp+mv: прямая перезапись существующего .env испортила бы
+    # hardlink-бэкап отката при повторном запуске.
+    cp .env.example .env.bootstrap.tmp && mv .env.bootstrap.tmp .env
 
     env_set PROJECT_NAME "${VENDOR}/${NAME}"
     env_set HOST_NAME "${HOST_NAME_V}"
@@ -864,7 +899,7 @@ if [[ "$SKIP_ENV" -eq 0 ]]; then
         env_set CATALOG_SRV "${SERVER_PATH_V}"
     fi
 
-    if [[ "$TARGET" == "hosting" ]]; then
+    if [[ "$TARGET" != "local" ]]; then
         env_set APP_ENV "production"
         env_set APP_DEBUG "false"
         env_set DOCUMENT_ROOT "${DOCROOT}"
@@ -984,9 +1019,9 @@ if [[ -f local/.settings.php ]]; then
     INIT_ARGS=(--force)
 fi
 if [[ "$TARGET" == "local" ]]; then
-    dl exec bash scripts/init "${INIT_ARGS[@]}"
+    dl exec bash scripts/init ${INIT_ARGS[@]+"${INIT_ARGS[@]}"}
 else
-    PHP_BIN="$PHP_BIN" bash scripts/init "${INIT_ARGS[@]}"
+    PHP_BIN="$PHP_BIN" bash scripts/init ${INIT_ARGS[@]+"${INIT_ARGS[@]}"}
 fi
 
 # --- Шаг: composer --------------------------------------------------------------------
@@ -1007,12 +1042,9 @@ elif [[ "$MODE" == "composer" ]]; then
     # после переименования модуля.
     composer_cmd dump-autoload --quiet
     ok "Автозагрузка пересобрана."
-elif [[ "$TARGET" == "hosting" ]]; then
+elif [[ "$TARGET" != "local" ]]; then
     composer_cmd install --no-dev --optimize-autoloader --no-interaction
     ok "Зависимости установлены (--no-dev)."
-else
-    composer_cmd install --no-interaction
-    ok "Зависимости установлены."
 fi
 
 # --- Шаг: git ---------------------------------------------------------------------------
@@ -1033,7 +1065,7 @@ if [[ "$GIT_INIT" -eq 1 ]]; then
             warn "git identity не настроен — коммичу как «Bootstrap <bootstrap@localhost>». Настройте: git config --global user.name / user.email"
             GIT_ID_ARGS=(-c user.name=Bootstrap -c user.email=bootstrap@localhost)
         fi
-        git "${GIT_ID_ARGS[@]}" commit --quiet -m "Initial commit from bitrix-boilerplate"
+        git ${GIT_ID_ARGS[@]+"${GIT_ID_ARGS[@]}"} commit --quiet -m "Initial commit from bitrix-boilerplate"
         ok "Создан репозиторий, первый коммит: $(git log --oneline -1)"
     fi
 fi
@@ -1064,10 +1096,18 @@ if [[ "$TARGET" == "local" ]]; then
         say "  2. Установите ядро Битрикса вручную или запустите ./scripts/setup"
         say "  3. dl exec vendor/bin/phinx migrate -c phinx.php    ${C_DIM}# миграции после установки ядра${C_RESET}"
     fi
-else
-    say "  1. Прогоните миграции: ${PHP_BIN} vendor/bin/phinx migrate -c phinx.php"
+elif [[ "$TARGET" == "server" ]]; then
+    say "  1. cd ${PROJECT_ROOT}"
+    say "  2. Прогоните миграции: ${PHP_BIN} vendor/bin/phinx migrate -c phinx.php"
     if [[ "$GIT_INIT" -eq 1 ]]; then
-        say "  2. Привяжите репозиторий проекта: git remote add origin <url> && git push -u origin main"
+        say "  3. Привяжите репозиторий проекта: git remote add origin <url> && git push -u origin main"
+    fi
+else
+    say "  1. Проверьте симлинк docroot: ${DOCROOT} → ${PROJECT_ROOT}/public"
+    say "  2. cd ${PROJECT_ROOT}"
+    say "  3. Прогоните миграции: ${PHP_BIN} vendor/bin/phinx migrate -c phinx.php"
+    if [[ "$GIT_INIT" -eq 1 ]]; then
+        say "  4. Привяжите репозиторий проекта: git remote add origin <url> && git push -u origin main"
     fi
 fi
 say ""

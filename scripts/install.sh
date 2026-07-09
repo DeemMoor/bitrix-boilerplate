@@ -26,6 +26,9 @@ Options:
   --public-dir DIR Web root directory relative to project root or absolute path.
                    Use --public-dir . when the docroot is the project dir itself.
                    Default: public
+  --link-public-dir For hosting: replace --public-dir with a symlink to project public/.
+                   For --public-dir public: convert public/{bitrix,local,upload}
+                   into symlinks to project root. Existing Bitrix dirs are moved first.
   --force          Allow installing into an existing directory. Existing matching files may be overwritten.
   -h, --help       Show this help.
 EOF
@@ -36,6 +39,7 @@ FROM_DIR=""
 REF="master"
 TARGET_DIR=""
 PUBLIC_DIR="public"
+LINK_PUBLIC_DIR=0
 FORCE=0
 
 while [[ $# -gt 0 ]]; do
@@ -59,6 +63,10 @@ while [[ $# -gt 0 ]]; do
         --public-dir)
             PUBLIC_DIR="${2:-}"
             shift 2
+            ;;
+        --link-public-dir)
+            LINK_PUBLIC_DIR=1
+            shift
             ;;
         --force)
             FORCE=1
@@ -148,10 +156,110 @@ resolve_public_dir() {
     fi
 }
 
+merge_dir_contents() { # merge_dir_contents <src> <dest>
+    local src="$1" dest="$2" item base
+    [[ -e "$src" || -L "$src" ]] || return 0
+    mkdir -p "$dest"
+    shopt -s dotglob nullglob
+    for item in "$src"/*; do
+        base="$(basename "$item")"
+        if [[ -e "$dest/$base" || -L "$dest/$base" ]]; then
+            if [[ -d "$item" && -d "$dest/$base" && ! -L "$item" && ! -L "$dest/$base" ]]; then
+                merge_dir_contents "$item" "$dest/$base"
+            else
+                echo "Cannot move hosting file, target exists: $dest/$base" >&2
+                exit 1
+            fi
+        else
+            mv "$item" "$dest/$base"
+        fi
+    done
+    shopt -u dotglob nullglob
+    rmdir "$src" 2>/dev/null || true
+}
+
+move_docroot_leftovers() { # move_docroot_leftovers <docroot> <project_public>
+    # Остальные файлы docroot (robots.txt, .htaccess, свой index.php и т.п.)
+    # переносим в project public/: файлы работающего сайта важнее болваночных
+    # копий, поэтому при совпадении имён побеждает версия с хостинга.
+    local src="$1" dest="$2" item base
+    mkdir -p "$dest"
+    shopt -s dotglob nullglob
+    for item in "$src"/*; do
+        base="$(basename "$item")"
+        if [[ -d "$item" && -d "$dest/$base" && ! -L "$item" && ! -L "$dest/$base" ]]; then
+            merge_dir_contents "$item" "$dest/$base"
+        else
+            rm -rf "${dest:?}/$base"
+            mv "$item" "$dest/$base"
+        fi
+    done
+    shopt -u dotglob nullglob
+}
+
+prepare_linked_public_dir() { # public_html -> project/public
+    local public_source public_target project_root item
+
+    public_source="$TARGET_DIR/public"
+    public_target="$(resolve_public_dir)"
+    project_root="$(cd "$TARGET_DIR" && pwd -P)"
+
+    if [[ -L "$public_target" && "$(readlink "$public_target")" == "$public_source" ]]; then
+        return
+    fi
+
+    if [[ -e "$public_target" && ! -d "$public_target" ]]; then
+        echo "Web root exists and is not a directory: $public_target" >&2
+        exit 1
+    fi
+
+    if [[ -d "$public_target" ]]; then
+        for item in bitrix local upload; do
+            merge_dir_contents "$public_target/$item" "$project_root/$item"
+        done
+
+        move_docroot_leftovers "$public_target" "$public_source"
+        rmdir "$public_target"
+    else
+        mkdir -p "$(dirname "$public_target")"
+    fi
+
+    ln -s "$public_source" "$public_target"
+}
+
+prepare_project_public_links() { # project/public/{bitrix,local,upload} -> ../{bitrix,local,upload}
+    local public_source project_root item link
+
+    public_source="$TARGET_DIR/public"
+    project_root="$(cd "$TARGET_DIR" && pwd -P)"
+    mkdir -p "$public_source"
+
+    for item in bitrix local upload; do
+        link="$public_source/$item"
+        if [[ -L "$link" ]]; then
+            continue
+        fi
+        if [[ -e "$link" ]]; then
+            merge_dir_contents "$link" "$project_root/$item"
+        else
+            mkdir -p "$project_root/$item"
+        fi
+        ln -s "../$item" "$link"
+    done
+}
+
 prepare_public_dir() {
     local public_source public_target project_root web_root item link
 
     if [[ "$PUBLIC_DIR" == "public" ]]; then
+        if [[ "$LINK_PUBLIC_DIR" -eq 1 ]]; then
+            prepare_project_public_links
+        fi
+        return
+    fi
+
+    if [[ "$LINK_PUBLIC_DIR" -eq 1 ]]; then
+        prepare_linked_public_dir
         return
     fi
 
@@ -202,12 +310,23 @@ echo "Installing project to $TARGET_DIR..."
 if [[ -d "$SRC_DIR/.git" ]]; then
     # Копируем только видимые git'у файлы (tracked + untracked без ignored):
     # это отсекает vendor/, bitrix/, .env и прочий локальный мусор источника.
-    (cd "$SRC_DIR" && git ls-files -coz --exclude-standard \
-        | tar --null --ignore-failed-read -cf - -T -) | tar -xpf - -C "$TARGET_DIR"
+    # Если ставим поверх уже установленного Bitrix в public/, не пытаемся
+    # распаковать tracked symlink public/{bitrix,local,upload} поверх каталогов.
+    COPY_MANIFEST="$TMP_DIR/copy-manifest"
+    (cd "$SRC_DIR" && git ls-files -coz --exclude-standard) > "$COPY_MANIFEST"
+    for public_link in public/bitrix public/local public/upload; do
+        if [[ -e "$TARGET_DIR/$public_link" || -L "$TARGET_DIR/$public_link" ]]; then
+            FILTERED_MANIFEST="$TMP_DIR/copy-manifest.filtered"
+            grep -zvxF "$public_link" "$COPY_MANIFEST" > "$FILTERED_MANIFEST" || true
+            mv "$FILTERED_MANIFEST" "$COPY_MANIFEST"
+        fi
+    done
+    (cd "$SRC_DIR" && tar --null --ignore-failed-read -cf - -T "$COPY_MANIFEST") | tar -xpf - -C "$TARGET_DIR"
 else
     cp -R "$SRC_DIR/." "$TARGET_DIR/"
 fi
-rm -rf "$TARGET_DIR/.git"
+# .git цели не трогаем: болванка не приносит свой .git (манифест его не содержит),
+# а при повторной установке поверх живого проекта чужую git-историю удалять нельзя.
 prepare_public_dir
 
 echo "Done. Project installed to $TARGET_DIR."

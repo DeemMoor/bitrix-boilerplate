@@ -641,7 +641,7 @@ echo "[INFO] Соединения: ${CONNECTION_ITEMS[*]}"
 update_composer_name
 rename_engine_module
 
-echo "[INFO] Генерируем local/.settings.php по .env..."
+echo "[INFO] Генерируем local/.settings.php..."
 
 # Пишем через tmp+mv: перезапись файла на месте ломает hardlink-бэкапы
 # (их делает scripts/bootstrap для отката при ошибке).

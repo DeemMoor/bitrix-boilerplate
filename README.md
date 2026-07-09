@@ -162,7 +162,7 @@ bash <(curl -fsSL https://github.com/DeemMoor/bitrix-boilerplate/raw/master/scri
 После установки ядра:
 
 ```bash
-dl exec vendor/bin/phinx migrate -c phinx.php
+dl exec "vendor/bin/phinx migrate -c phinx.php"
 ```
 
 На сервере/хостинге:

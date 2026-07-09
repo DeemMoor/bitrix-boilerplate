@@ -33,11 +33,25 @@ check() { # check "описание" команда с аргументами...
 FAKE_BIN="$SMOKE_TMP/bin"
 mkdir -p "$FAKE_BIN"
 
+# Эмулирует поведение настоящего dl: exec выполняет команду одной строкой
+# в кавычках, а отдельные аргументы-флаги (--no-interaction и т.п.) отвергает —
+# так тесты ловят регрессии с прокидыванием флагов через dl exec.
 cat > "$FAKE_BIN/dl" <<'SH'
 #!/bin/sh
-case "$1" in
-    up|deploy) exit 0 ;;
-    exec) shift; exec "$@" ;;
+cmd="${1:-}"
+[ "$#" -gt 0 ] && shift
+case "$cmd" in
+    exec)
+        if [ "$#" -eq 1 ]; then
+            exec sh -c "$1"
+        fi
+        for a in "$@"; do
+            case "$a" in
+                -*) echo "Error: unknown flag: $a" >&2; exit 1 ;;
+            esac
+        done
+        exec "$@"
+        ;;
     *) exit 0 ;;
 esac
 SH

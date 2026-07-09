@@ -174,8 +174,23 @@ FULL_RESTORE_PAIRS=()   # "backup|original" — вернуть целый кат
 BACKUP_DIRS=()          # каталоги-бэкапы — удалить при любом исходе
 BACKUP_SEQ=0
 PROJECT_DIR_CREATED=""  # каталог, созданный мастером целиком, — снести при ошибке
+DL_UP_DONE=0            # контейнеры подняты — перед откатом гасим dl down
+RESTORE_KEEP_BACKUPS=0  # откат не удался — бэкапы не удаляем
 CURRENT_STEP=""
 CLEANUP_DONE=0
+
+# rm -rf с честным итогом: docker-вольюмы внутри проекта принадлежат root,
+# удалить их без sudo нельзя — не спамим ошибками, а говорим, что осталось.
+rm_or_warn() {
+    local path="$1"
+    rm -rf "$path" 2>/dev/null || true
+    if [[ -e "$path" || -L "$path" ]]; then
+        warn "Не смог удалить полностью: ${path} (файлы docker-вольюмов созданы от root)."
+        warn "Добейте вручную: sudo rm -rf '${path}'"
+        return 1
+    fi
+    return 0
+}
 
 # Полный бэкап каталога для отката. Кладём рядом на том же ФС: cp -al
 # (мгновенные hardlink'и, без расхода места) — ядро Битрикса на хостинге может
@@ -210,14 +225,19 @@ cleanup_on_fail() {
         return # ничего ещё не создали — чистить нечего
     fi
     warn "Подчищаю за собой..."
+    if [[ "$DL_UP_DONE" -eq 1 && -n "$PROJECT_ROOT" && -d "$PROJECT_ROOT" ]]; then
+        info "Останавливаю контейнеры: dl down"
+        (cd "$PROJECT_ROOT" && dl down) >/dev/null 2>&1 || true
+    fi
     cd /
     if [[ -n "$PROJECT_DIR_CREATED" ]]; then
-        rm -rf "$PROJECT_DIR_CREATED"
-        info "Удалён каталог: $PROJECT_DIR_CREATED"
+        if rm_or_warn "$PROJECT_DIR_CREATED"; then
+            info "Удалён каталог: $PROJECT_DIR_CREATED"
+        fi
     fi
     for path in ${CLEANUP_PATHS[@]+"${CLEANUP_PATHS[@]}"}; do
         if [[ -e "$path" || -L "$path" ]]; then
-            rm -rf "$path"
+            rm_or_warn "$path" || true
         fi
     done
     for pair in ${RESTORE_PAIRS[@]+"${RESTORE_PAIRS[@]}"}; do
@@ -228,8 +248,12 @@ cleanup_on_fail() {
     done
     for pair in ${FULL_RESTORE_PAIRS[@]+"${FULL_RESTORE_PAIRS[@]}"}; do
         if [[ -d "${pair%%|*}" ]]; then
-            rm -rf "${pair##*|}"
-            mv "${pair%%|*}" "${pair##*|}"
+            if rm_or_warn "${pair##*|}"; then
+                mv "${pair%%|*}" "${pair##*|}"
+            else
+                warn "Откат каталога не завершён, бэкап оставлен: ${pair%%|*}"
+                RESTORE_KEEP_BACKUPS=1
+            fi
         fi
     done
     info "Созданные файлы удалены, перезаписанные восстановлены."
@@ -252,9 +276,11 @@ on_exit() {
         cleanup_on_fail
     fi
     local backup
-    for backup in ${BACKUP_DIRS[@]+"${BACKUP_DIRS[@]}"}; do
-        rm -rf "$backup"
-    done
+    if [[ "$RESTORE_KEEP_BACKUPS" -ne 1 ]]; then
+        for backup in ${BACKUP_DIRS[@]+"${BACKUP_DIRS[@]}"}; do
+            rm -rf "$backup"
+        done
+    fi
     rm -rf "$TMP_DIR"
 }
 
@@ -323,6 +349,13 @@ check_bitrix_installed() { # check_bitrix_installed <docroot>
             "Сначала установите ядро Битрикса, затем ставьте болванку поверх него."
     fi
     ok "Битрикс найден: ${docroot}/bitrix"
+}
+
+# dl exec принимает команду либо без флагов, либо одной строкой в кавычках
+# (dl exec "composer install --no-interaction") — иначе съедает --флаги сам.
+# Склеиваем аргументы в одну строку; токены с пробелами сюда не передавать.
+dl_exec() {
+    dl exec "$*"
 }
 
 # Запускает composer через подходящий PHP (на хостингах системный php бывает старым).
@@ -966,6 +999,7 @@ fi
 if [[ "$TARGET" == "local" ]]; then
     step "Запуск контейнеров (dl up)"
     dl up
+    DL_UP_DONE=1
     ok "Контейнеры запущены."
 
     case "$BITRIX_SOURCE" in
@@ -987,7 +1021,7 @@ if [[ "$STRIP_DEMO" -eq 1 ]]; then
     step "Удаление демо-данных"
     if [[ -d local/modules/vendor.engine ]]; then
         if [[ "$TARGET" == "local" ]]; then
-            dl exec php scripts/strip-demo.php
+            dl_exec php scripts/strip-demo.php
         else
             "$PHP_BIN" scripts/strip-demo.php
         fi
@@ -1000,25 +1034,29 @@ fi
 if [[ "$RENAMED_MODULE_PREEXISTED" -eq 1 && -d "local/modules/${VENDOR}.engine" && -d local/modules/vendor.engine ]]; then
     info "Модуль ${VENDOR}.engine уже был в проекте — убираю повторно скопированный vendor.engine."
     rm -rf local/modules/vendor.engine
+    # Через временный файл в проекте: dl exec не пропускает флаги вроде php -r
+    # и не пробрасывает переменные окружения в контейнер.
+    cat > .bootstrap-fix-psr4.php <<'PHP'
+<?php
+$vendor = $argv[1];
+$namespaceVendor = str_replace(' ', '', ucwords(str_replace(['-', '_'], ' ', $vendor)));
+$composerFile = 'composer.json';
+$json = json_decode(file_get_contents($composerFile), true, 512, JSON_THROW_ON_ERROR);
+if (isset($json['autoload']['psr-4']['Vendor\\Engine\\'])) {
+    unset($json['autoload']['psr-4']['Vendor\\Engine\\']);
+    $json['autoload']['psr-4'][$namespaceVendor . '\\Engine\\'] = 'local/modules/' . $vendor . '.engine/lib';
+    file_put_contents(
+        $composerFile,
+        json_encode($json, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) . PHP_EOL
+    );
+}
+PHP
     if [[ "$TARGET" == "local" ]]; then
-        PHP_REWRITE_CMD=(dl exec php -r)
+        dl_exec php .bootstrap-fix-psr4.php "$VENDOR"
     else
-        PHP_REWRITE_CMD=("$PHP_BIN" -r)
+        "$PHP_BIN" .bootstrap-fix-psr4.php "$VENDOR"
     fi
-    PROJECT_VENDOR="$VENDOR" "${PHP_REWRITE_CMD[@]}" '
-        $vendor = getenv("PROJECT_VENDOR");
-        $namespaceVendor = str_replace(" ", "", ucwords(str_replace(["-", "_"], " ", $vendor)));
-        $composerFile = "composer.json";
-        $json = json_decode(file_get_contents($composerFile), true, 512, JSON_THROW_ON_ERROR);
-        if (isset($json["autoload"]["psr-4"]["Vendor\\Engine\\"])) {
-            unset($json["autoload"]["psr-4"]["Vendor\\Engine\\"]);
-            $json["autoload"]["psr-4"][$namespaceVendor . "\\Engine\\"] = "local/modules/" . $vendor . ".engine/lib";
-            file_put_contents(
-                $composerFile,
-                json_encode($json, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) . PHP_EOL
-            );
-        }
-    '
+    rm -f .bootstrap-fix-psr4.php
 fi
 
 # --- Шаг: init ----------------------------------------------------------------------
@@ -1028,7 +1066,7 @@ if [[ -f local/.settings.php ]]; then
     INIT_ARGS=(--force)
 fi
 if [[ "$TARGET" == "local" ]]; then
-    dl exec bash scripts/init ${INIT_ARGS[@]+"${INIT_ARGS[@]}"}
+    dl_exec bash scripts/init ${INIT_ARGS[@]+"${INIT_ARGS[@]}"}
 else
     PHP_BIN="$PHP_BIN" bash scripts/init ${INIT_ARGS[@]+"${INIT_ARGS[@]}"}
 fi
@@ -1040,10 +1078,10 @@ if [[ ! -d vendor ]]; then
 fi
 if [[ "$TARGET" == "local" ]]; then
     if [[ "$MODE" == "composer" ]]; then
-        dl exec composer dump-autoload --quiet
+        dl_exec composer dump-autoload --quiet
         ok "Автозагрузка пересобрана в контейнере."
     else
-        dl exec composer install --no-interaction
+        dl_exec composer install --no-interaction
         ok "Зависимости установлены в контейнере."
     fi
 elif [[ "$MODE" == "composer" ]]; then
@@ -1098,12 +1136,12 @@ if [[ "$TARGET" == "local" ]]; then
     say "  1. cd ${PROJECT_ROOT}"
     if [[ "$BITRIX_SOURCE" == "setup" ]]; then
         say "  2. Откройте /bitrixsetup.php в браузере и установите ядро Битрикса"
-        say "  3. dl exec vendor/bin/phinx migrate -c phinx.php    ${C_DIM}# миграции после установки ядра${C_RESET}"
+        say "  3. dl exec \"vendor/bin/phinx migrate -c phinx.php\"    ${C_DIM}# миграции после установки ядра${C_RESET}"
     elif [[ "$BITRIX_SOURCE" == "deploy" ]]; then
-        say "  2. dl exec vendor/bin/phinx migrate -c phinx.php    ${C_DIM}# миграции${C_RESET}"
+        say "  2. dl exec \"vendor/bin/phinx migrate -c phinx.php\"    ${C_DIM}# миграции${C_RESET}"
     else
         say "  2. Установите ядро Битрикса вручную или запустите ./scripts/setup"
-        say "  3. dl exec vendor/bin/phinx migrate -c phinx.php    ${C_DIM}# миграции после установки ядра${C_RESET}"
+        say "  3. dl exec \"vendor/bin/phinx migrate -c phinx.php\"    ${C_DIM}# миграции после установки ядра${C_RESET}"
     fi
 elif [[ "$TARGET" == "server" ]]; then
     say "  1. cd ${PROJECT_ROOT}"

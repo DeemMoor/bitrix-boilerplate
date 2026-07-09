@@ -33,8 +33,43 @@ check() { # check "описание" команда с аргументами...
 FAKE_BIN="$SMOKE_TMP/bin"
 mkdir -p "$FAKE_BIN"
 
-printf '#!/bin/sh\nexit 0\n' > "$FAKE_BIN/dl"
+cat > "$FAKE_BIN/dl" <<'SH'
+#!/bin/sh
+case "$1" in
+    up|deploy) exit 0 ;;
+    exec) shift; exec "$@" ;;
+    *) exit 0 ;;
+esac
+SH
 chmod +x "$FAKE_BIN/dl"
+
+cat > "$FAKE_BIN/wget" <<'SH'
+#!/bin/sh
+out=""
+while [ "$#" -gt 0 ]; do
+    case "$1" in
+        -O) out="$2"; shift 2 ;;
+        *) shift ;;
+    esac
+done
+[ -n "$out" ] || exit 1
+printf '%s\n' '<?php // fake bitrixsetup' > "$out"
+SH
+chmod +x "$FAKE_BIN/wget"
+
+cat > "$FAKE_BIN/curl" <<'SH'
+#!/bin/sh
+out=""
+while [ "$#" -gt 0 ]; do
+    case "$1" in
+        -o) out="$2"; shift 2 ;;
+        *) shift ;;
+    esac
+done
+[ -n "$out" ] || exit 1
+printf '%s\n' '<?php // fake bitrixsetup' > "$out"
+SH
+chmod +x "$FAKE_BIN/curl"
 
 if [[ "${SMOKE_REAL_COMPOSER:-0}" != "1" ]]; then
     cat > "$FAKE_BIN/composer" <<'SH'
@@ -132,10 +167,11 @@ note "Сценарий 4: все дефолты через --yes"
 S4="$SMOKE_TMP/s4"
 mkdir -p "$S4"
 (cd "$S4" && bash "$BOOTSTRAP" --source-dir "$REPO_ROOT" --yes)
-P4="$S4/project"
+P4="$S4"
 check ".env: PROJECT_NAME=vendor/project"   grep -qx 'PROJECT_NAME=vendor/project' "$P4/.env"
 check ".env: CONNECTIONS=[mysql]"           grep -qx 'CONNECTIONS=\[mysql\]' "$P4/.env"
 check ".settings.php создан"                test -f "$P4/local/.settings.php"
+check "bitrixsetup.php скачан по умолчанию" test -f "$P4/public/bitrixsetup.php"
 check "демо оставлено (по умолчанию)"       test -f "$P4/local/modules/vendor.engine/lib/Controller/ExampleController.php"
 check "git: ровно один коммит"              test "$(git -C "$P4" rev-list --count HEAD)" = "1"
 
@@ -161,7 +197,7 @@ mkdir -p "$S6/badbin"
 printf '#!/bin/sh\nexit 1\n' > "$S6/badbin/composer"
 chmod +x "$S6/badbin/composer"
 rc=0
-(cd "$S6" && PATH="$S6/badbin:$PATH" bash "$BOOTSTRAP" --source-dir "$REPO_ROOT" --yes) \
+(cd "$S6" && PATH="$S6/badbin:$PATH" bash "$BOOTSTRAP" --source-dir "$REPO_ROOT" --dir project --yes) \
     >"$S6/out.log" 2>&1 || rc=$?
 check "установка упала (composer сломан)"   test "$rc" -ne 0
 check "ошибка названа явно"                 grep -q 'завершился с ошибкой' "$S6/out.log"

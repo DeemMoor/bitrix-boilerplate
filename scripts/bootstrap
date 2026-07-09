@@ -242,7 +242,10 @@ check_base_deps() {
 
     command -v git >/dev/null 2>&1 \
         || die "git не найден." "Установите git и запустите мастер снова."
+    ok "git: $(command -v git)"
+}
 
+check_host_runtime_deps() {
     if [[ -n "$PHP_BIN" ]]; then
         command -v "$PHP_BIN" >/dev/null 2>&1 \
             || die "PHP_BIN=${PHP_BIN}: команда не найдена."
@@ -266,8 +269,8 @@ check_base_deps() {
     command -v composer >/dev/null 2>&1 \
         || die "composer не найден." "Установите composer (https://getcomposer.org/download/) и запустите мастер снова."
     ok "composer: $(command -v composer)"
-    ok "git: $(command -v git)"
 }
+
 
 check_dl() {
     command -v dl >/dev/null 2>&1 \
@@ -310,10 +313,10 @@ Bitrix Boilerplate — интерактивный установщик.
 
 Флаги:
   --target local|hosting   Куда ставим: локалка (docker/dl) или shared-хостинг.
-  --dir DIR                Каталог проекта для локалки. По умолчанию: project
+  --dir DIR                Каталог проекта для локалки. По умолчанию: .
   --public-dir DIR         Docroot хостинга, где уже установлен Битрикс. По умолчанию: public_html
   --vendor NAME            Vendor: a-z, 0-9, _ (станет префиксом модуля <vendor>.engine).
-  --name NAME              Название проекта: a-z, 0-9, _, ., -
+  --name NAME              Имя пакета после vendor: a-z, 0-9, _, ., -
   --host-name NAME         HOST_NAME для .env. По умолчанию: название проекта.
   --db mysql|pgsql|mariadb Тип базы (только локалка; на хостинге берётся из Битрикса).
   --db-version V           Версия БД (по умолчанию: mysql 8.4, pgsql 18, mariadb lts).
@@ -323,6 +326,9 @@ Bitrix Boilerplate — интерактивный установщик.
                            Адреса сервисов на хостинге. По умолчанию: 127.0.0.1.
   --cache files|redis|memcache|none       Кэш Битрикса. По умолчанию: files
   --session file|database|redis|memcache  Сессии. По умолчанию: file
+  --bitrix setup|deploy|skip  Локально: скачать bitrixsetup.php, выполнить dl deploy или пропустить.
+  --server HOST / --server-user USER / --server-port PORT / --server-path PATH
+                           Параметры .env для dl deploy.
   --strip-demo | --keep-demo  Удалить/оставить демо-код (на хостинге удаляется всегда).
   --git | --no-git         Делать ли git init + первый коммит. По умолчанию: git.
   --force                  Разрешить установку в непустой каталог и перезапись .env.
@@ -332,8 +338,9 @@ Bitrix Boilerplate — интерактивный установщик.
   --from-composer          Служебный: запуск из composer create-project.
   -h, --help               Эта справка.
 
-Зависимости (обязательные, при отсутствии — ошибка): git, PHP >= ${PHP_MIN_VERSION},
-composer; для локалки — dl; для хостинга — уже установленный Битрикс в docroot.
+Зависимости: всегда нужны bash >= 4 и git; для локалки нужен dl (PHP/Composer
+запускаются через dl exec); для хостинга/host-сервера нужны PHP >= ${PHP_MIN_VERSION},
+composer и уже установленный Битрикс в docroot.
 EOF
 }
 
@@ -353,6 +360,11 @@ MEMCACHED_HOST_V=""
 MEMCACHED_PORT_V=""
 CACHE_V=""
 SESSION_V=""
+BITRIX_SOURCE=""
+SERVER_V=""
+SERVER_USER_V=""
+SERVER_PORT_V=""
+SERVER_PATH_V=""
 STRIP_DEMO=""
 GIT_INIT=""
 FORCE=0
@@ -387,6 +399,14 @@ while [[ $# -gt 0 ]]; do
         --memcached-port) MEMCACHED_PORT_V="${2:-}"; shift 2 ;;
         --cache)          CACHE_V="${2:-}"; shift 2 ;;
         --session)        SESSION_V="${2:-}"; shift 2 ;;
+        --bitrix)         BITRIX_SOURCE="${2:-}"; shift 2 ;;
+        --setup-bitrix)   BITRIX_SOURCE="setup"; shift ;;
+        --deploy-bitrix)  BITRIX_SOURCE="deploy"; shift ;;
+        --skip-bitrix)    BITRIX_SOURCE="skip"; shift ;;
+        --server)         SERVER_V="${2:-}"; shift 2 ;;
+        --server-user)    SERVER_USER_V="${2:-}"; shift 2 ;;
+        --server-port)    SERVER_PORT_V="${2:-}"; shift 2 ;;
+        --server-path)    SERVER_PATH_V="${2:-}"; shift 2 ;;
         --strip-demo)     STRIP_DEMO=1; shift ;;
         --keep-demo)      STRIP_DEMO=0; shift ;;
         --git)            GIT_INIT=1; shift ;;
@@ -406,6 +426,7 @@ case "$TARGET" in ''|local|hosting) ;; *) die "--target: допустимо loca
 case "$DB" in ''|mysql|pgsql|mariadb) ;; *) die "--db: допустимо mysql, pgsql или mariadb, получено «${DB}»." ;; esac
 case "$CACHE_V" in ''|files|redis|memcache|none) ;; *) die "--cache: допустимо files, redis, memcache или none." ;; esac
 case "$SESSION_V" in ''|file|database|redis|memcache) ;; *) die "--session: допустимо file, database, redis или memcache." ;; esac
+case "$BITRIX_SOURCE" in ''|setup|deploy|skip) ;; *) die "--bitrix: допустимо setup, deploy или skip." ;; esac
 
 if [[ "$INTERACTIVE" -ne 1 && "$ASSUME_YES" -ne 1 ]]; then
     die "stdin не терминал: интерактивные вопросы невозможны." \
@@ -450,11 +471,12 @@ if [[ "$TARGET_CHOICE" == "1" ]]; then TARGET="local"; else TARGET="hosting"; fi
 
 if [[ "$TARGET" == "local" ]]; then
     check_dl
-    QUESTION_TOTAL=8
+    QUESTION_TOTAL=9
     if [[ "$MODE" != "remote" ]]; then
-        QUESTION_TOTAL=7
+        QUESTION_TOTAL=8
     fi
 else
+    check_host_runtime_deps
     QUESTION_TOTAL=6
 fi
 
@@ -462,14 +484,19 @@ fi
 if [[ "$MODE" == "remote" ]]; then
     if [[ "$TARGET" == "local" ]]; then
         section "Каталог проекта"
-        ask_value PROJECT_DIR "Имя каталога проекта" "project" '^[A-Za-z0-9._/-]+$' \
+        ask_value PROJECT_DIR "Куда установить файлы (. = текущая папка, или имя новой папки)" "." '^[A-Za-z0-9._/-]+$' \
             "Только буквы, цифры, точки, дефисы и подчёркивания."
         if [[ "$PROJECT_DIR" != /* ]]; then
             PROJECT_DIR="$PWD/${PROJECT_DIR%/}"
         fi
-        if [[ -e "$PROJECT_DIR" && "$FORCE" -ne 1 ]]; then
-            die "Каталог уже существует: ${PROJECT_DIR}." \
-                "Укажите другой каталог или добавьте --force для установки в существующий."
+        if [[ -e "$PROJECT_DIR" ]]; then
+            if [[ ! -d "$PROJECT_DIR" ]]; then
+                die "Путь уже существует и это не каталог: ${PROJECT_DIR}."
+            fi
+            if [[ -n "$(find "$PROJECT_DIR" -mindepth 1 -maxdepth 1 -print -quit)" && "$FORCE" -ne 1 ]]; then
+                die "Каталог уже не пустой: ${PROJECT_DIR}." \
+                    "Выберите пустой каталог, новую папку или добавьте --force, если точно хотите писать поверх."
+            fi
         fi
     else
         section "Каталог сайта"
@@ -505,7 +532,7 @@ if [[ -f "$ENV_TARGET_DIR/.env" && "$FORCE" -ne 1 && "$ASSUME_YES" -eq 1 ]]; the
 fi
 
 # --- Vendor и название -------------------------------------------------------
-section "Vendor и название проекта"
+section "Vendor и composer-name"
 default_name="project"
 if [[ "$TARGET" == "local" && -n "$PROJECT_DIR" ]]; then
     default_name="$(basename "$PROJECT_DIR" | tr '[:upper:]' '[:lower:]' | tr -cd 'a-z0-9_.-')"
@@ -518,7 +545,7 @@ fi
 
 ask_value VENDOR "Vendor (префикс модуля <vendor>.engine)" "vendor" '^[a-z][a-z0-9_]*$' \
     "Строчные латинские буквы, цифры и _, первая — буква."
-ask_value NAME "Название проекта" "$default_name" '^[a-z][a-z0-9_.-]*$' \
+ask_value NAME "Имя проекта в composer.json (vendor/<name>, Enter = имя каталога)" "$default_name" '^[a-z][a-z0-9_.-]*$' \
     "Строчные латинские буквы, цифры, точки, дефисы и _, первая — буква."
 ask_value HOST_NAME_V "HOST_NAME (домен/имя хоста для окружения)" "$NAME" '^[a-z0-9][a-z0-9.-]*$' \
     "Строчные буквы, цифры, точки и дефисы."
@@ -550,6 +577,28 @@ else
         DB="mysql"
     fi
     info "База данных: ${DB} (тип и креды возьмутся из bitrix/.settings.php)."
+fi
+
+# --- Источник Битрикса для локалки --------------------------------------------
+if [[ "$TARGET" == "local" ]]; then
+    section "Битрикс локально"
+    BITRIX_CHOICE=""
+    case "$BITRIX_SOURCE" in setup) BITRIX_CHOICE=1 ;; deploy) BITRIX_CHOICE=2 ;; skip) BITRIX_CHOICE=3 ;; esac
+    ask_menu BITRIX_CHOICE "Что сделать с ядром и базой после запуска контейнеров?" 1 \
+        "Скачать bitrixsetup.php для ручной установки" \
+        "Выполнить dl deploy: забрать ядро и базу с сервера" \
+        "Пропустить"
+    case "$BITRIX_CHOICE" in
+        1) BITRIX_SOURCE="setup" ;;
+        2) BITRIX_SOURCE="deploy" ;;
+        3) BITRIX_SOURCE="skip" ;;
+    esac
+    if [[ "$BITRIX_SOURCE" == "deploy" ]]; then
+        ask_value SERVER_V "SERVER для dl deploy" "127.0.0.1" '^[A-Za-z0-9._-]+$' "Хост или IP."
+        ask_value SERVER_USER_V "USER_SRV для dl deploy" "user" '^[A-Za-z0-9._-]+$' "Пользователь SSH."
+        ask_value SERVER_PORT_V "PORT_SRV для dl deploy" "22" '^[0-9]+$' "Порт SSH."
+        ask_value SERVER_PATH_V "CATALOG_SRV на сервере" "/var/www/html" '^/.+' "Абсолютный путь на сервере."
+    fi
 fi
 
 # --- Сервисы -------------------------------------------------------------------
@@ -628,6 +677,11 @@ if [[ "$TARGET" == "local" ]]; then
     summary_line "Цель:" "локалка / свой сервер (dl)"
     summary_line "Каталог:" "${PROJECT_DIR}"
     summary_line "БД:" "${DB} ${DB_VERSION}"
+    case "$BITRIX_SOURCE" in
+        setup) summary_line "Битрикс:" "скачать bitrixsetup.php" ;;
+        deploy) summary_line "Битрикс:" "dl deploy с ${SERVER_V}" ;;
+        skip) summary_line "Битрикс:" "пропустить" ;;
+    esac
 else
     summary_line "Цель:" "shared-хостинг"
     summary_line "Docroot:" "${DOCROOT}"
@@ -658,6 +712,8 @@ fi
 STEP_N=0
 STEP_TOTAL=3
 if [[ "$MODE" == "remote" ]]; then STEP_TOTAL=$((STEP_TOTAL + 1)); fi
+if [[ "$TARGET" == "local" ]]; then STEP_TOTAL=$((STEP_TOTAL + 1)); fi
+if [[ "$TARGET" == "local" && "$BITRIX_SOURCE" != "skip" ]]; then STEP_TOTAL=$((STEP_TOTAL + 1)); fi
 if [[ "$STRIP_DEMO" -eq 1 ]]; then STEP_TOTAL=$((STEP_TOTAL + 1)); fi
 if [[ "$GIT_INIT" -eq 1 ]]; then STEP_TOTAL=$((STEP_TOTAL + 1)); fi
 RENAMED_MODULE_PREEXISTED=0
@@ -801,6 +857,13 @@ if [[ "$SKIP_ENV" -eq 0 ]]; then
     env_set PROJECT_NAME "${VENDOR}/${NAME}"
     env_set HOST_NAME "${HOST_NAME_V}"
 
+    if [[ "$BITRIX_SOURCE" == "deploy" ]]; then
+        env_set SERVER "${SERVER_V}"
+        env_set USER_SRV "${SERVER_USER_V}"
+        env_set PORT_SRV "${SERVER_PORT_V}"
+        env_set CATALOG_SRV "${SERVER_PATH_V}"
+    fi
+
     if [[ "$TARGET" == "hosting" ]]; then
         env_set APP_ENV "production"
         env_set APP_DEBUG "false"
@@ -848,18 +911,42 @@ if [[ "$SKIP_ENV" -eq 0 ]]; then
     if [[ "$WANT_MEMCACHED" -eq 1 ]]; then connections+=",memcache"; fi
     env_set CONNECTIONS "[${connections}]"
 
-    if [[ "$PHP_BIN" != "php" ]]; then
+    if [[ -n "$PHP_BIN" && "$PHP_BIN" != "php" ]]; then
         env_set PHP_BIN "$PHP_BIN"
     fi
 
     ok ".env создан."
 fi
 
+# --- Шаг: запуск локальных контейнеров ---------------------------------------------
+if [[ "$TARGET" == "local" ]]; then
+    step "Запуск контейнеров (dl up)"
+    dl up
+    ok "Контейнеры запущены."
+
+    case "$BITRIX_SOURCE" in
+        setup)
+            step "Скачивание bitrixsetup.php"
+            bash scripts/setup
+            ok "bitrixsetup.php скачан в public/."
+            ;;
+        deploy)
+            step "Загрузка ядра и базы (dl deploy)"
+            dl deploy
+            ok "Ядро и база загружены через dl deploy."
+            ;;
+    esac
+fi
+
 # --- Шаг: демо-данные ---------------------------------------------------------------
 if [[ "$STRIP_DEMO" -eq 1 ]]; then
     step "Удаление демо-данных"
     if [[ -d local/modules/vendor.engine ]]; then
-        "$PHP_BIN" scripts/strip-demo.php
+        if [[ "$TARGET" == "local" ]]; then
+            dl exec php scripts/strip-demo.php
+        else
+            "$PHP_BIN" scripts/strip-demo.php
+        fi
         ok "Демо-срез удалён, каркас модуля сохранён."
     else
         info "Модуль vendor.engine не найден (уже переименован или очищен) — пропускаю."
@@ -869,7 +956,12 @@ fi
 if [[ "$RENAMED_MODULE_PREEXISTED" -eq 1 && -d "local/modules/${VENDOR}.engine" && -d local/modules/vendor.engine ]]; then
     info "Модуль ${VENDOR}.engine уже был в проекте — убираю повторно скопированный vendor.engine."
     rm -rf local/modules/vendor.engine
-    PROJECT_VENDOR="$VENDOR" "$PHP_BIN" -r '
+    if [[ "$TARGET" == "local" ]]; then
+        PHP_REWRITE_CMD=(dl exec php -r)
+    else
+        PHP_REWRITE_CMD=("$PHP_BIN" -r)
+    fi
+    PROJECT_VENDOR="$VENDOR" "${PHP_REWRITE_CMD[@]}" '
         $vendor = getenv("PROJECT_VENDOR");
         $namespaceVendor = str_replace(" ", "", ucwords(str_replace(["-", "_"], " ", $vendor)));
         $composerFile = "composer.json";
@@ -891,14 +983,26 @@ INIT_ARGS=()
 if [[ -f local/.settings.php ]]; then
     INIT_ARGS=(--force)
 fi
-PHP_BIN="$PHP_BIN" bash scripts/init "${INIT_ARGS[@]}"
+if [[ "$TARGET" == "local" ]]; then
+    dl exec bash scripts/init "${INIT_ARGS[@]}"
+else
+    PHP_BIN="$PHP_BIN" bash scripts/init "${INIT_ARGS[@]}"
+fi
 
 # --- Шаг: composer --------------------------------------------------------------------
 step "Composer-зависимости"
 if [[ ! -d vendor ]]; then
     CLEANUP_PATHS+=("$PROJECT_ROOT/vendor")
 fi
-if [[ "$MODE" == "composer" ]]; then
+if [[ "$TARGET" == "local" ]]; then
+    if [[ "$MODE" == "composer" ]]; then
+        dl exec composer dump-autoload --quiet
+        ok "Автозагрузка пересобрана в контейнере."
+    else
+        dl exec composer install --no-interaction
+        ok "Зависимости установлены в контейнере."
+    fi
+elif [[ "$MODE" == "composer" ]]; then
     # create-project уже поставил зависимости — только пересобираем автозагрузку
     # после переименования модуля.
     composer_cmd dump-autoload --quiet
@@ -951,11 +1055,15 @@ say ""
 say "${C_TITLE}Что дальше:${C_RESET}"
 if [[ "$TARGET" == "local" ]]; then
     say "  1. cd ${PROJECT_ROOT}"
-    say "  2. dl up                    ${C_DIM}# поднять контейнеры${C_RESET}"
-    say "  3. Установите ядро Битрикса:"
-    say "     dl deploy                ${C_DIM}# если прод-сервер прописан в .env${C_RESET}"
-    say "     ./scripts/setup          ${C_DIM}# или скачать bitrixsetup.php и пройти установку в браузере${C_RESET}"
-    say "  4. dl exec vendor/bin/phinx migrate -c phinx.php    ${C_DIM}# миграции${C_RESET}"
+    if [[ "$BITRIX_SOURCE" == "setup" ]]; then
+        say "  2. Откройте /bitrixsetup.php в браузере и установите ядро Битрикса"
+        say "  3. dl exec vendor/bin/phinx migrate -c phinx.php    ${C_DIM}# миграции после установки ядра${C_RESET}"
+    elif [[ "$BITRIX_SOURCE" == "deploy" ]]; then
+        say "  2. dl exec vendor/bin/phinx migrate -c phinx.php    ${C_DIM}# миграции${C_RESET}"
+    else
+        say "  2. Установите ядро Битрикса вручную или запустите ./scripts/setup"
+        say "  3. dl exec vendor/bin/phinx migrate -c phinx.php    ${C_DIM}# миграции после установки ядра${C_RESET}"
+    fi
 else
     say "  1. Прогоните миграции: ${PHP_BIN} vendor/bin/phinx migrate -c phinx.php"
     if [[ "$GIT_INIT" -eq 1 ]]; then

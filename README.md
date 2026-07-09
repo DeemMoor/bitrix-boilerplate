@@ -10,7 +10,7 @@
 bash <(curl -fsSL https://github.com/DeemMoor/bitrix-boilerplate/raw/master/scripts/bootstrap)
 ```
 
-Мастер спросит, куда ставить проект, vendor/name, БД, Redis/Memcached, кэш, сессии, удалять ли демо и делать ли первый git-коммит.
+Мастер спросит, куда ставить проект (`.` = текущая папка), vendor/name, БД, что делать с Битриксом локально, Redis/Memcached, кэш, сессии, удалять ли демо и делать ли первый git-коммит.
 
 Для shared-хостинга сначала установите ядро Битрикса в docroot, затем запускайте команду выше из каталога сайта. Если Битрикса нет, установщик остановится с ошибкой и подчистит созданные файлы.
 
@@ -31,13 +31,13 @@ composer create-project \
   deemmoor/bitrix-boilerplate myproject dev-master
 ```
 
-После `create-project` автоматически запустится тот же мастер. Этот способ требует локальные `PHP >= 8.4`, `composer`, `git`; для локальной установки также нужен `dl`.
+После `create-project` автоматически запустится тот же мастер. Composer сам требует локальные `PHP >= 8.4`, `composer`, `git`; для чистой Docker/DL-установки без host Composer используйте curl-способ.
 
 ## Что проверяет установщик
 
-- `bash >= 4`, `git`, `PHP >= 8.4`, `composer`.
-- Для локалки: наличие `dl`.
-- Для shared-хостинга: установленный Битрикс в docroot (`bitrix/.settings.php` и `bitrix/modules/main`).
+- Для всех режимов: `bash >= 4`, `git`.
+- Для локалки: наличие `dl`; PHP/Composer запускаются через `dl exec` внутри контейнера.
+- Для shared-хостинга/host-сервера: локальные `PHP >= 8.4`, `composer` и установленный Битрикс в docroot (`bitrix/.settings.php` и `bitrix/modules/main`).
 - На аварии выводит конкретную ошибку и откатывает созданные файлы/каталоги.
 - Перед первым коммитом проверяет, что `.env` игнорируется git.
 
@@ -45,10 +45,11 @@ composer create-project \
 
 - Копирует болванку из GitHub или запускается из уже скачанного проекта.
 - Генерирует `.env` из `.env.example`, сохраняя комментарии.
+- Локально запускает `dl up`, затем либо скачивает `public/bitrixsetup.php`, либо выполняет `dl deploy`, либо пропускает этот шаг по вашему выбору.
 - Для продовой установки ставит `APP_ENV=production`, `APP_DEBUG=false` и всегда удаляет демо-срез.
 - До `init` может удалить демо-код: Example-сущность, `/api/example`, `/api/test`, команду `ping`.
-- Запускает `scripts/init`: генерирует `local/.settings.php`, `dbconn.php`, меняет `composer.json`, переименовывает `vendor.engine` в `<vendor>.engine`.
-- Ставит Composer-зависимости и делает `git init` + первый коммит, если вы это подтвердили.
+- Запускает `scripts/init`: локально через `dl exec bash`, на хостинге через подходящий `PHP_BIN`; генерирует `local/.settings.php`, `dbconn.php`, меняет `composer.json`, переименовывает `vendor.engine` в `<vendor>.engine`.
+- Ставит Composer-зависимости: локально через `dl exec composer`, на хостинге через локальный Composer; затем делает `git init` + первый коммит, если вы это подтвердили.
 
 ## Неинтерактивный запуск
 
@@ -62,6 +63,7 @@ bash <(curl -fsSL https://github.com/DeemMoor/bitrix-boilerplate/raw/master/scri
   --redis \
   --cache redis \
   --session redis \
+  --bitrix setup \
   --strip-demo \
   --git \
   --yes
@@ -84,15 +86,16 @@ bash <(curl -fsSL https://github.com/DeemMoor/bitrix-boilerplate/raw/master/scri
 
 ## После установки
 
-Локально:
+Локально мастер уже поднял контейнеры и поставил Composer-зависимости внутри них. Если выбран `--bitrix setup`, откройте `/bitrixsetup.php` в браузере и установите ядро Битрикса. Креды БД берите из `.env`.
+
+После установки ядра:
 
 ```bash
 cd myproject
-dl up
-./scripts/setup
+dl exec vendor/bin/phinx migrate -c phinx.php
 ```
 
-Откройте `bitrixsetup.php` в браузере и установите ядро Битрикса. Креды БД берите из `.env`.
+Если выбран `--bitrix deploy`, мастер уже выполнил `dl deploy`; остаётся прогнать миграции.
 
 На хостинге:
 
@@ -111,7 +114,16 @@ php8.4 vendor/bin/phinx migrate -c phinx.php
 
 ## Ручные команды
 
-Старый ручной путь остаётся рабочим:
+Старый ручной путь остаётся рабочим. Локально команды проекта выполняйте внутри контейнера:
+
+```bash
+cp .env.example .env
+dl up
+dl exec bash scripts/init
+dl exec composer install
+```
+
+На хостинге/host-сервере без DL:
 
 ```bash
 cp .env.example .env
@@ -122,8 +134,10 @@ composer install
 Удалить демо-срез вручную можно только до `scripts/init`:
 
 ```bash
-php scripts/strip-demo.php
+dl exec php scripts/strip-demo.php
 ```
+
+На хостинге без DL используйте `php scripts/strip-demo.php`.
 
 ## Доставка изменений
 

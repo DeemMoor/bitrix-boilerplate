@@ -51,10 +51,16 @@ die() {
 }
 
 banner() {
-    printf '%s\n' "${C_TITLE}╔══════════════════════════════════════════════╗${C_RESET}"
-    printf '%s\n' "${C_TITLE}║${C_RESET}  ${C_GREEN}Bitrix Boilerplate${C_RESET}                         ${C_TITLE}║${C_RESET}"
-    printf '%s\n' "${C_TITLE}║${C_RESET}  интерактивная установка проекта           ${C_TITLE}║${C_RESET}"
-    printf '%s\n' "${C_TITLE}╚══════════════════════════════════════════════╝${C_RESET}"
+    printf '%s' "${C_TITLE}"
+    cat <<'EOF'
+  ____  _ _        _        ____        _ _                 _       _
+ | __ )(_) |_ _ __(_)_  __ | __ )  ___ (_) | ___ _ __ _ __ | | __ _| |_ ___
+ |  _ \| | __| '__| \ \/ / |  _ \ / _ \| | |/ _ \ '__| '_ \| |/ _` | __/ _ \
+ | |_) | | |_| |  | |>  <  | |_) | (_) | | |  __/ |  | |_) | | (_| | ||  __/
+ |____/|_|\__|_|  |_/_/\_\ |____/ \___/|_|_|\___|_|  | .__/|_|\__,_|\__\___|
+                                                     |_|
+EOF
+    printf '%s\n' "${C_RESET}${C_DIM} интерактивная установка проекта${C_RESET}"
 }
 
 
@@ -481,7 +487,7 @@ elif [[ -z "$SOURCE_DIR" && -n "$SCRIPT_DIR" && -f "$SCRIPT_DIR/init" && -f "$SC
 fi
 
 banner
-say "Интерактивный установщик Bitrix Boilerplate."
+say ""
 info "Enter — принять значение в скобках, Ctrl+C — выход."
 say ""
 say "${C_TITLE}Проверка зависимостей${C_RESET}"
@@ -497,9 +503,9 @@ if [[ "$TARGET" == "server" ]]; then TARGET_CHOICE=2; fi
 if [[ "$TARGET" == "hosting" ]]; then TARGET_CHOICE=3; fi
 printf '\n%s\n' "${C_TITLE}Куда ставим болванку?${C_RESET}"
 ask_menu TARGET_CHOICE "Вариант установки" 1 \
-    "Локальная разработка (Docker + DL, docroot = public/)" \
-    "Свой сервер/VPS (docroot = public/, PHP/Composer на сервере)" \
-    "Shared-хостинг (public_html → public, поверх установленного Битрикса)"
+    "Локальная разработка" \
+    "Свой сервер / VPS" \
+    "Shared-хостинг"
 case "$TARGET_CHOICE" in
     1) TARGET="local" ;;
     2) TARGET="server" ;;
@@ -521,12 +527,12 @@ fi
 if [[ "$MODE" == "remote" ]]; then
     if [[ "$TARGET" == "hosting" ]]; then
         section "Каталоги хостинга"
-        ask_value PROJECT_DIR "Каталог кода болванки (. = текущая папка, обычно app)" "app" '^[A-Za-z0-9._/-]+$' \
+        ask_value PROJECT_DIR "Каталог для кода" "app" '^[A-Za-z0-9._/-]+$' \
             "Только буквы, цифры, точки, дефисы и подчёркивания."
-        ask_value DOCROOT "Public docroot хостинга с установленным Битриксом" "public_html" '' ''
+        ask_value DOCROOT "Docroot с установленным Битриксом" "public_html" '' ''
     else
         section "Каталог проекта"
-        ask_value PROJECT_DIR "Куда установить файлы (. = текущая папка, или имя новой папки)" "." '^[A-Za-z0-9._/-]+$' \
+        ask_value PROJECT_DIR "Каталог установки" "." '^[A-Za-z0-9._/-]+$' \
             "Только буквы, цифры, точки, дефисы и подчёркивания."
         if [[ "$TARGET" == "server" ]]; then
             ask_value DOCROOT "Docroot сервера с установленным Битриксом" "public" '' ''
@@ -604,11 +610,12 @@ if [[ -z "$default_name" || ! "$default_name" =~ ^[a-z] ]]; then
     default_name="project"
 fi
 
-ask_value VENDOR "Vendor (префикс модуля <vendor>.engine)" "vendor" '^[a-z][a-z0-9_]*$' \
+info "Из ответов соберётся имя composer-пакета vendor/name и модуль <vendor>.engine."
+ask_value VENDOR "Vendor" "vendor" '^[a-z][a-z0-9_]*$' \
     "Строчные латинские буквы, цифры и _, первая — буква."
-ask_value NAME "Имя проекта в composer.json (vendor/<name>, Enter = имя каталога)" "$default_name" '^[a-z][a-z0-9_.-]*$' \
+ask_value NAME "Название проекта" "$default_name" '^[a-z][a-z0-9_.-]*$' \
     "Строчные латинские буквы, цифры, точки, дефисы и _, первая — буква."
-ask_value HOST_NAME_V "HOST_NAME (домен/имя хоста для окружения)" "$NAME" '^[a-z0-9][a-z0-9.-]*$' \
+ask_value HOST_NAME_V "HOST_NAME" "$NAME" '^[a-z0-9][a-z0-9.-]*$' \
     "Строчные буквы, цифры, точки и дефисы."
 
 # --- База данных -------------------------------------------------------------
@@ -719,7 +726,8 @@ if [[ "$TARGET" != "local" ]]; then
     info "Продовая установка: демо-срез (Example, /api/example, /api/test, ping) будет удалён."
 else
     section "Демо-данные"
-    ask_yn STRIP_DEMO "Удалить демо-срез (Example, /api/example, /api/test, команда ping)?" n
+    info "Демо-срез: сущность Example, эндпоинты /api/example и /api/test, команда ping."
+    ask_yn STRIP_DEMO "Удалить демо-данные?" n
 fi
 
 # --- Git ---------------------------------------------------------------------------

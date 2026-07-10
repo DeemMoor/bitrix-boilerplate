@@ -348,6 +348,34 @@ check_dl() {
     ok "dl: $(command -v dl)"
 }
 
+# Защита от случайной переустановки: болванка уже стоит в каталоге —
+# повторная раскладка файлов перезапишет каркас (composer.json с вашими
+# пакетами, console, routes/, public/). Осознанно — только через --reinstall.
+check_reinstall() { # check_reinstall <dir>
+    local dir="$1"
+    if [[ ! -f "$dir/scripts/init" || ! -f "$dir/composer.json" ]]; then
+        return
+    fi
+    warn "В «${dir}» уже установлена болванка (нашёл scripts/init и composer.json)."
+    warn "Повторная установка перезапишет каркас: composer.json, console, routes/, public/."
+    info "Перенастроить окружение без перекладки файлов: ./scripts/bootstrap из каталога проекта."
+    if [[ "$REINSTALL" -eq 1 ]]; then
+        warn "Задан --reinstall — продолжаю поверх."
+        return
+    fi
+    if [[ "$INTERACTIVE" -eq 1 && "$ASSUME_YES" -ne 1 ]]; then
+        CONFIRM_REINSTALL=""
+        ask_yn CONFIRM_REINSTALL "Точно переустановить поверх?" n
+        if [[ "$CONFIRM_REINSTALL" -eq 1 ]]; then
+            return
+        fi
+        say "Отменено. Ничего не изменено."
+        exit 0
+    fi
+    die "Болванка уже установлена: ${dir}." \
+        "Добавьте --reinstall, если осознанно ставите поверх."
+}
+
 check_bitrix_installed() { # check_bitrix_installed <docroot>
     local docroot="$1"
     if [[ ! -f "$docroot/bitrix/modules/main/include.php" || ! -f "$docroot/bitrix/.settings.php" ]]; then
@@ -407,6 +435,7 @@ Bitrix Boilerplate — интерактивный установщик.
   --server HOST / --server-user USER / --server-port PORT / --server-path PATH
                            Параметры .env для dl deploy.
   --strip-demo | --keep-demo  Удалить/оставить демо-код (на server/hosting удаляется всегда).
+  --reinstall              Ставить поверх уже установленной болванки (перезапишет каркас).
   --git | --no-git         git init + добавить файлы в индекс (без коммита). По умолчанию: git.
   --force                  Разрешить установку в непустой каталог и перезапись .env.
   --yes                    Неинтерактивный режим: дефолты для всего незаданного.
@@ -444,6 +473,7 @@ SERVER_PORT_V=""
 SERVER_PATH_V=""
 STRIP_DEMO=""
 GIT_INIT=""
+REINSTALL=0
 FORCE=0
 ASSUME_YES=0
 REF="master"
@@ -486,6 +516,7 @@ while [[ $# -gt 0 ]]; do
         --server-path)    SERVER_PATH_V="${2:-}"; shift 2 ;;
         --strip-demo)     STRIP_DEMO=1; shift ;;
         --keep-demo)      STRIP_DEMO=0; shift ;;
+        --reinstall)      REINSTALL=1; shift ;;
         --git)            GIT_INIT=1; shift ;;
         --no-git)         GIT_INIT=0; shift ;;
         --force)          FORCE=1; shift ;;
@@ -589,6 +620,7 @@ if [[ "$MODE" == "remote" ]]; then
         # Канонизируем (например, --dir . даёт «/path/.»), иначе бэкап отката
         # посчитает родителем сам каталог и попытается скопировать его в себя.
         PROJECT_DIR="$(cd "$PROJECT_DIR" && pwd -P)"
+        check_reinstall "$PROJECT_DIR"
         if [[ "$TARGET" == "local" && -n "$(find "$PROJECT_DIR" -mindepth 1 -maxdepth 1 -print -quit)" && "$FORCE" -ne 1 ]]; then
             die "Каталог уже не пустой: ${PROJECT_DIR}." \
                 "Выберите пустой каталог, новую папку или добавьте --force, если точно хотите писать поверх."

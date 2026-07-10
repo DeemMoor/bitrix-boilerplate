@@ -195,13 +195,22 @@ check "server: демо удалено"                test ! -e "$D2B/local/mod
 check "server: git создан, файлы в индексе" test -n "$(git -C "$D2B" ls-files)"
 
 # =============================================================================
-note "Сценарий 3: повторный запуск сценария 1 (--force) не ломает проект"
+note "Сценарий 3: повторный запуск сценария 1 не ломает проект"
 # первый коммит делает юзер — эмулируем и проверяем, что rerun его не тронет
 git -C "$P" -c user.name=User -c user.email=user@test commit -qm "Initial project state"
 S1_COMMIT="$(git -C "$P" rev-parse HEAD)"
+
+# без --reinstall повторная установка обязана отказаться
+rc=0
+(cd "$S1" && bash "$BOOTSTRAP" --source-dir "$REPO_ROOT" --target local --dir project \
+    --vendor acme --name shop --db mysql --yes --force) >"$S1/rerun.log" 2>&1 || rc=$?
+check "rerun без --reinstall отклонён"      test "$rc" -ne 0
+check "rerun: ошибка говорит про болванку"  grep -q 'уже установлена' "$S1/rerun.log"
+check "rerun: composer.json не тронут"      grep -q '"name": "acme/shop"' "$P/composer.json"
+
 (cd "$S1" && bash "$BOOTSTRAP" --source-dir "$REPO_ROOT" --target local --dir project \
     --vendor acme --name shop --db mysql --redis --cache redis --session redis \
-    --strip-demo --git --yes --force)
+    --strip-demo --git --yes --force --reinstall)
 check "модуль acme.engine на месте"         test -d "$P/local/modules/acme.engine"
 check ".settings.php перегенерирован"       grep -q 'CacheEngineRedis' "$P/local/.settings.php"
 check "git: по-прежнему один коммит"        test "$(git -C "$P" rev-list --count HEAD)" = "1"

@@ -121,6 +121,22 @@ is_true() {
     esac
 }
 
+# Экранирует значение для вставки в одинарные кавычки PHP-литерала:
+# пароль вида p'ass не должен ломать сгенерированный .settings.php.
+php_quote() {
+    local v="$1"
+    v="${v//\\/\\\\}"
+    v="${v//\'/\\\'}"
+    printf '%s' "${v}"
+}
+
+require_number() { # require_number <имя> <значение>
+    if [[ ! "$2" =~ ^[0-9]+$ ]]; then
+        echo "[ERROR] $1 должен быть числом, получено: $2"
+        exit 1
+    fi
+}
+
 require_service() {
     local service_title="$1"
     local env_value="$2"
@@ -204,10 +220,10 @@ build_default_connection_block() {
     cat <<PHP
             'default' => [
                 'className' => ${DB_CLASS}::class,
-                'host' => '${DB_HOST}',
-                'database' => '${DB_NAME}',
-                'login' => '${DB_USER}',
-                'password' => '${DB_PASSWORD}',
+                'host' => '$(php_quote "${DB_HOST}")',
+                'database' => '$(php_quote "${DB_NAME}")',
+                'login' => '$(php_quote "${DB_USER}")',
+                'password' => '$(php_quote "${DB_PASSWORD}")',
                 ${DB_OPTIONS}
             ],
 PHP
@@ -217,7 +233,7 @@ build_redis_connection_block() {
     cat <<PHP
             'redis' => [
                 'className' => RedisConnection::class,
-                'host' => '${REDIS_HOST:-redis}',
+                'host' => '$(php_quote "${REDIS_HOST:-redis}")',
                 'port' => ${REDIS_PORT:-6379},
                 'serializer' => \\Redis::SERIALIZER_JSON,
             ],
@@ -228,7 +244,7 @@ build_memcache_connection_block() {
     cat <<PHP
             'memcache' => [
                 'className' => MemcacheConnection::class,
-                'host' => '${MEMCACHED_HOST:-memcached}',
+                'host' => '$(php_quote "${MEMCACHED_HOST:-memcached}")',
                 'port' => ${MEMCACHED_PORT:-11211},
             ],
 PHP
@@ -509,6 +525,11 @@ SESSION="${SESSION:-file}"
 CACHE="${CACHE,,}"
 SESSION="${SESSION,,}"
 
+# Значения, попадающие в PHP-код без кавычек, нормализуем и проверяем заранее.
+if is_true "${APP_DEBUG:-false}"; then APP_DEBUG_PHP=true; else APP_DEBUG_PHP=false; fi
+require_number REDIS_PORT "${REDIS_PORT:-6379}"
+require_number MEMCACHED_PORT "${MEMCACHED_PORT:-11211}"
+
 CONNECTION_ITEMS=()
 if [ -n "${CONNECTIONS:-}" ]; then
     while IFS= read -r connection; do
@@ -547,7 +568,7 @@ case "${CACHE}" in
             ],
             'sid' => \$_SERVER['DOCUMENT_ROOT'] . '#01',
             'redis' => [
-                'host' => '${REDIS_HOST:-redis}',
+                'host' => '$(php_quote "${REDIS_HOST:-redis}")',
                 'port' => ${REDIS_PORT:-6379},
             ],
         ],
@@ -562,7 +583,7 @@ case "${CACHE}" in
             'type' => 'memcache',
             'sid' => \$_SERVER['DOCUMENT_ROOT'] . '#01',
             'memcache' => [
-                'host' => '${MEMCACHED_HOST:-memcached}',
+                'host' => '$(php_quote "${MEMCACHED_HOST:-memcached}")',
                 'port' => ${MEMCACHED_PORT:-11211},
             ],
         ],
@@ -596,14 +617,14 @@ case "${SESSION}" in
     redis)
         require_service "сессий Redis" "${REDIS:-}" "REDIS"
         SESSION_HANDLER="'type' => 'redis',
-                                'host' => '${REDIS_HOST:-redis}',
+                                'host' => '$(php_quote "${REDIS_HOST:-redis}")',
                                 'port' => ${REDIS_PORT:-6379},"
         ;;
     memcache|memcached)
         require_service "сессий Memcached" "${MEMCACHED:-}" "MEMCACHED"
         SESSION="memcache"
         SESSION_HANDLER="'type' => 'memcache',
-                                'host' => '${MEMCACHED_HOST:-memcached}',
+                                'host' => '$(php_quote "${MEMCACHED_HOST:-memcached}")',
                                 'port' => ${MEMCACHED_PORT:-11211},"
         ;;
     database)
@@ -687,7 +708,7 @@ ${CONNECTIONS_BLOCK}
     ],
     'exception_handling' => [
         'value' => [
-            'debug' => ${APP_DEBUG:-false},
+            'debug' => ${APP_DEBUG_PHP},
             // E_DEPRECATED исключён: ядро Битрикса на PHP 8.4 сыпет
             // compile-time deprecation в вывод страницы (ломает вёрстку мастера).
             'handled_errors_types' => E_ALL & ~E_NOTICE & ~E_USER_NOTICE & ~E_DEPRECATED,

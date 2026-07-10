@@ -8,6 +8,8 @@ use Throwable;
 use Loghouse\Logger\Logger;
 use OpenApi\Attributes as OA;
 use Bitrix\Main\Engine\Response\Json;
+use Bitrix\Main\Engine\ActionFilter\Csrf;
+use Bitrix\Main\Engine\ActionFilter\Authentication;
 use Vendor\Engine\UseCase\GetExampleUseCase;
 use Vendor\Engine\Presenter\ExamplePresenter;
 use Vendor\Engine\UseCase\ListExamplesUseCase;
@@ -19,6 +21,18 @@ use Vendor\Engine\UseCase\ListExamplesUseCase;
  */
 class ExampleController extends BaseController
 {
+    /**
+     * Демо-эндпоинты публичные: точечно снимаем авторизацию и CSRF,
+     * остальные префильтры (HttpMethod) остаются штатными.
+     */
+    public function configureActions(): array
+    {
+        return [
+            'list' => ['-prefilters' => [Authentication::class, Csrf::class]],
+            'get'  => ['-prefilters' => [Authentication::class, Csrf::class]],
+        ];
+    }
+
     #[OA\Get(
         path: '/api/example',
         summary: 'Список активных записей Example',

@@ -46,7 +46,7 @@ composer create-project deemmoor/bitrix-boilerplate myproject
 - REST API с OpenAPI-документацией из PHP-атрибутов — доступна на `/api/doc`.
 - Консольные команды на symfony/console — `php console`.
 - Миграции и сидеры БД на phinx — каталог `database/`.
-- Конфигурация через `.env`: БД (MySQL/PostgreSQL/MariaDB), Redis/Memcached, кэш и сессии Битрикса. `scripts/init` генерирует из него `local/.settings.php` и `dbconn.php`.
+- Конфигурация через `.env`: БД (MySQL/MariaDB; PostgreSQL — только при установке поверх уже работающего на нём Битрикса), Redis/Memcached, кэш и сессии Битрикса. `scripts/init` генерирует из него `local/.settings.php` и `dbconn.php`.
 - Демо-срез удаляется одной командой (`php scripts/strip-demo.php`), при установке на прод мастер удаляет его сам — остаётся чистый каркас модуля.
 
 ## Сценарии установки

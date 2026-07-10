@@ -10,6 +10,10 @@ use Bitrix\Main\Engine\Controller;
  * Базовый контроллер модуля. Глобальные метаданные OpenAPI вынесены в
  * {@see \Vendor\Engine\OpenApi\ApiSpec} (атрибуты), отдельные эндпоинты
  * описываются атрибутами/аннотациями на контроллерах-наследниках.
+ *
+ * Штатные префильтры Битрикса (Authentication, HttpMethod, Csrf) НЕ отключены:
+ * ваши экшены по умолчанию защищены. Публичность задавайте точечно через
+ * configureActions() с '-prefilters' — образец в контроллерах демо.
  */
 class BaseController extends Controller
 {
@@ -21,9 +25,4 @@ class BaseController extends Controller
         404 => 'Not Found',
         500 => 'Internal Server Error',
     ];
-
-    public function getDefaultPreFilters(): array
-    {
-        return [];
-    }
 }

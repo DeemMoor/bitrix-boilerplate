@@ -21,19 +21,19 @@
 - Формат для shell-команд:
 
   ```bash
-  docker exec -it bitrix-boilerplate_php <command>
+  docker exec -it -w /var/www/html bitrix-boilerplate_php <command>
   ```
 
 - Для неинтерактивных команд — без `-it`:
 
   ```bash
-  docker exec bitrix-boilerplate_php <command>
+  docker exec -w /var/www/html bitrix-boilerplate_php <command>
   ```
 
 - Генерация OpenAPI документации: 
 
   ```bash
-  docker exec <название контейнера> vendor/bin/bitrixoa --bitrix-generate
+  docker exec -w /var/www/html <название контейнера> vendor/bin/bitrixoa --bitrix-generate
   ```
   сканирует аннотации в `local/modules/`, перезаписывает `local/bitrixoa.yaml`.
 

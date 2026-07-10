@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Vendor\Engine\DTO;
 
+use DateTimeZone;
 use DateTimeImmutable;
 use OpenApi\Attributes as OA;
 use Bitrix\Main\Type\DateTime;
@@ -57,7 +58,10 @@ readonly class ExampleReadModel
     private static function toDateTime(mixed $value): ?DateTimeImmutable
     {
         if ($value instanceof DateTime) {
-            return DateTimeImmutable::createFromInterface($value->getValue());
+            // У Bitrix\Main\Type\DateTime нет getValue() и он не DateTimeInterface —
+            // конвертируем через timestamp, возвращая текущую таймзону PHP.
+            return (new DateTimeImmutable('@' . $value->getTimestamp()))
+                ->setTimezone(new DateTimeZone(date_default_timezone_get()));
         }
 
         if (is_string($value) && $value !== '') {

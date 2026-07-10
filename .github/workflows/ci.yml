@@ -26,6 +26,20 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y shellcheck
 
+      - name: Composer validate
+        run: composer validate --strict
+
+      - name: PHP lint
+        run: |
+          find local/modules scripts tests -name '*.php' -print0 | xargs -0 -n1 -P4 php -l > /dev/null
+          php -l phinx.php > /dev/null
+          php -l console > /dev/null
+
+      - name: PHPUnit
+        run: |
+          composer install --no-interaction --no-progress
+          vendor/bin/phpunit
+
       - name: Bash syntax
         run: |
           bash -n scripts/bootstrap

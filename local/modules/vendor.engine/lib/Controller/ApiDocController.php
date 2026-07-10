@@ -8,10 +8,19 @@ use BitrixOA\UiPage;
 use RuntimeException;
 use Bitrix\Main\HttpResponse;
 use Bitrix\Main\ArgumentTypeException;
+use Bitrix\Main\Engine\ActionFilter\Csrf;
+use Bitrix\Main\Engine\ActionFilter\Authentication;
 
 class ApiDocController extends BaseController
 {
     private const string YAML_PATH = 'local/bitrixoa.yaml';
+
+    public function configureActions(): array
+    {
+        return [
+            'index' => ['-prefilters' => [Authentication::class, Csrf::class]],
+        ];
+    }
 
     /**
      * @throws ArgumentTypeException

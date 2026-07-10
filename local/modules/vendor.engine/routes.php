@@ -11,5 +11,8 @@ return static function (RoutingConfigurator $configurator) {
     $configurator->get('/api/doc', [ApiDocController::class, 'indexAction']);
     $configurator->get('/api/test', [TestController::class, 'indexAction']);
     $configurator->get('/api/example', [ExampleController::class, 'listAction']);
-    $configurator->get('/api/example/{id}', [ExampleController::class, 'getAction']);
+    // Констрейнт обязателен: без него /api/example/foo уезжает в биндер
+    // и отвечает 200 с ошибкой вместо честного 404.
+    $configurator->get('/api/example/{id}', [ExampleController::class, 'getAction'])
+        ->where('id', '[0-9]+');
 };

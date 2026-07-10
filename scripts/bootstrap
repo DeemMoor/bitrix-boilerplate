@@ -423,8 +423,8 @@ Bitrix Boilerplate — интерактивный установщик.
   --vendor NAME            Vendor: a-z, 0-9, _ (станет префиксом модуля <vendor>.engine).
   --name NAME              Имя пакета после vendor: a-z, 0-9, _, ., -
   --host-name NAME         HOST_NAME для .env. По умолчанию: название проекта.
-  --db mysql|pgsql|mariadb Тип базы (только local; на server/hosting берётся из Битрикса).
-  --db-version V           Версия БД (по умолчанию: mysql 8.4, pgsql 18, mariadb lts).
+  --db mysql|mariadb       Тип базы (только local; на server/hosting берётся из Битрикса).
+  --db-version V           Версия БД (по умолчанию: mysql 8.4, mariadb lts).
   --redis                  Включить Redis.
   --memcached              Включить Memcached.
   --redis-host H / --redis-port P / --memcached-host H / --memcached-port P
@@ -531,7 +531,12 @@ while [[ $# -gt 0 ]]; do
 done
 
 case "$TARGET" in ''|local|server|hosting) ;; *) die "--target: допустимо local, server или hosting, получено «${TARGET}»." ;; esac
-case "$DB" in ''|mysql|pgsql|mariadb) ;; *) die "--db: допустимо mysql, pgsql или mariadb, получено «${DB}»." ;; esac
+case "$DB" in
+    ''|mysql|mariadb) ;;
+    pgsql) die "--db pgsql пока не поддерживается: демо-модуль и dbconn заточены под MySQL/MariaDB." \
+               "На хостинге поверх уже установленного на PostgreSQL Битрикса ставить можно — тип определится сам." ;;
+    *) die "--db: допустимо mysql или mariadb, получено «${DB}»." ;;
+esac
 case "$CACHE_V" in ''|files|redis|memcache|none) ;; *) die "--cache: допустимо files, redis, memcache или none." ;; esac
 case "$SESSION_V" in ''|file|database|redis|memcache) ;; *) die "--session: допустимо file, database, redis или memcache." ;; esac
 case "$BITRIX_SOURCE" in ''|setup|deploy|skip) ;; *) die "--bitrix: допустимо setup, deploy или skip." ;; esac
@@ -694,16 +699,14 @@ ask_value HOST_NAME_V "HOST_NAME" "$NAME" '^[a-z0-9][a-z0-9.-]*$' \
 if [[ "$TARGET" == "local" ]]; then
     section "База данных"
     DB_CHOICE=""
-    case "$DB" in mysql) DB_CHOICE=1 ;; pgsql) DB_CHOICE=2 ;; mariadb) DB_CHOICE=3 ;; esac
-    ask_menu DB_CHOICE "Какая база данных?" 1 "MySQL" "PostgreSQL" "MariaDB"
+    case "$DB" in mysql) DB_CHOICE=1 ;; mariadb) DB_CHOICE=2 ;; esac
+    ask_menu DB_CHOICE "Какая база данных?" 1 "MySQL" "MariaDB"
     case "$DB_CHOICE" in
         1) DB="mysql" ;;
-        2) DB="pgsql" ;;
-        3) DB="mariadb" ;;
+        2) DB="mariadb" ;;
     esac
     case "$DB" in
         mysql)   db_ver_default="8.4" ;;
-        pgsql)   db_ver_default="18" ;;
         mariadb) db_ver_default="lts" ;;
     esac
     ask_value DB_VERSION "Версия ${DB}" "$db_ver_default" '^[A-Za-z0-9.-]+$' "Например: ${db_ver_default}"
@@ -990,13 +993,6 @@ if [[ "$SKIP_ENV" -eq 0 ]]; then
         case "$DB" in
             mysql)
                 env_set MYSQL_VERSION "${DB_VERSION}"
-                ;;
-            pgsql)
-                env_comment MYSQL_VERSION
-                env_set POSTGRES_VERSION "${DB_VERSION}"
-                env_set POSTGRES_DB "db"
-                env_set POSTGRES_USER "db"
-                env_set POSTGRES_PASSWORD "db"
                 ;;
             mariadb)
                 env_comment MYSQL_VERSION

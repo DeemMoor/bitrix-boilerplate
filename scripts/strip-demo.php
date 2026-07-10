@@ -68,9 +68,11 @@ foreach ([
     $deleteFile($module . $rel);
 }
 
-// 1b. Демо-тест, завязанный на удаляемые классы Example.
+// 1b. Демо-тест и стаб ядра, завязанные на удаляемые классы Example.
 $deleteFile($root . '/tests/Unit/ExampleReadModelTest.php');
+$deleteFile($root . '/tests/Stubs/BitrixMainTypeDateTime.php');
 $gitkeepIfEmpty($root . '/tests/Unit');
+$gitkeepIfEmpty($root . '/tests/Stubs');
 
 // 2. Переписываем структурные файлы на чистые версии.
 
@@ -183,6 +185,22 @@ class vendor_engine extends CModule
 }
 
 PHP);
+
+// 2b. Перегенерированная «пустая» OpenAPI-спека: иначе /api/doc продолжит
+// рекламировать удалённые /api/example и /api/test.
+$writeFile($root . '/local/bitrixoa.yaml', <<<'YAML'
+openapi: 3.0.0
+info:
+  title: 'Project API'
+  description: 'API документация проекта'
+  version: 1.0.0
+servers:
+  -
+    url: /
+    description: 'Текущий хост'
+paths: {  }
+
+YAML);
 
 // 3. Чистим корневой console от регистрации PingCommand.
 $consolePath = $root . '/console';

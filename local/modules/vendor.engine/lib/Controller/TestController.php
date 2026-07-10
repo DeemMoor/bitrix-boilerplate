@@ -5,9 +5,18 @@ declare(strict_types=1);
 namespace Vendor\Engine\Controller;
 
 use Bitrix\Main\Engine\Response\Json;
+use Bitrix\Main\Engine\ActionFilter\Csrf;
+use Bitrix\Main\Engine\ActionFilter\Authentication;
 
 class TestController extends BaseController
 {
+    public function configureActions(): array
+    {
+        return [
+            'index' => ['-prefilters' => [Authentication::class, Csrf::class]],
+        ];
+    }
+
     /**
      * @OA\Get(
      *     path="/api/test",

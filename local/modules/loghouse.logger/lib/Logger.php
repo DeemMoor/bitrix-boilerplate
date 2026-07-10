@@ -122,14 +122,17 @@ final class Logger
         $logger    = new MonologLogger($channel);
         $formatter = self::makeFormatter((string)$config['formatter']);
         $targets   = array_map('strval', (array)$config['targets']);
-        $globalMin = $config['min_level'] ?? 'debug';
+        // Глобальный min_level — нижняя планка для всех таргетов: порог таргета
+        // может её только ужесточить. Раньше target-дефолты ('debug'/'info')
+        // всегда перекрывали глобальный уровень, и min_level фактически не работал.
+        $globalMin = Options::levelValue($config['min_level'] ?? 'debug');
 
         if (in_array(Options::TARGET_FILE, $targets, true)) {
             $logger->pushHandler(self::buildFileHandler($channel, $config, $formatter, $globalMin));
         }
 
         if (in_array(Options::TARGET_DB, $targets, true)) {
-            $level   = Options::levelValue($config['db_min_level'] ?? $globalMin);
+            $level   = max(Options::levelValue($config['db_min_level'] ?? $globalMin), $globalMin);
             $handler = new DatabaseHandler($level);
             $handler->setFormatter($formatter);
             $logger->pushHandler($handler);
@@ -139,7 +142,7 @@ final class Logger
             $token  = (string)($config['telegram_token'] ?? '');
             $chatId = (string)($config['telegram_chat_id'] ?? '');
             if ($token !== '' && $chatId !== '') {
-                $level             = Options::levelValue($config['telegram_min_level'] ?? $globalMin);
+                $level             = max(Options::levelValue($config['telegram_min_level'] ?? $globalMin), $globalMin);
                 $formatterType     = (string)($config['formatter'] ?? Options::FORMATTER_TEXT);
                 [$tgFormatter, $parseMode] = self::makeTelegramFormatter($formatterType);
                 $handler = new TelegramBotHandler(
@@ -169,7 +172,7 @@ final class Logger
         $path = self::resolveFilePath(self::resolveFileTemplate($channel, $config));
         self::ensureDir($path);
 
-        $level    = Options::levelValue($config['file_min_level'] ?? $globalMin);
+        $level    = max(Options::levelValue($config['file_min_level'] ?? $globalMin), Options::levelValue($globalMin));
         $rotation = (string)($config['file_rotation'] ?? Options::ROTATION_DAY);
         $maxFiles = (int)($config['file_max_files'] ?? 0);
 

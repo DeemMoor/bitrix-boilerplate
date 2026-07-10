@@ -32,6 +32,22 @@ final class ExampleReadModelTest extends TestCase
         self::assertSame('12:30:00', $model->updatedAt?->format('H:i:s'));
     }
 
+    public function testFromArrayAcceptsBitrixDateTimeObjects(): void
+    {
+        require_once __DIR__ . '/../Stubs/BitrixMainTypeDateTime.php';
+
+        $timestamp = mktime(12, 0, 0, 6, 4, 2026);
+        $model = ExampleReadModel::fromArray([
+            'ID'         => 1,
+            'TITLE'      => 'T',
+            'ACTIVE'     => 'Y',
+            'CREATED_AT' => new \Bitrix\Main\Type\DateTime($timestamp),
+        ]);
+
+        self::assertSame($timestamp, $model->createdAt?->getTimestamp());
+        self::assertSame('2026-06-04 12:00:00', $model->createdAt?->format('Y-m-d H:i:s'));
+    }
+
     public function testFromArrayNormalizesEmptyAndMissingValues(): void
     {
         $model = ExampleReadModel::fromArray([

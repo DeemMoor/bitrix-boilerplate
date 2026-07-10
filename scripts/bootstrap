@@ -1183,6 +1183,11 @@ if [[ "$TARGET" == "local" ]]; then
     elif [[ "$BITRIX_SOURCE" == "skip" ]]; then
         next "Установите ядро Битрикса: ./scripts/setup, затем откройте ${SETUP_URL}"
     fi
+    if [[ "$BITRIX_SOURCE" != "deploy" ]]; then
+        # В шаге «База данных» установщика Битрикса localhost не подойдёт:
+        # MySQL живёт в соседнем контейнере.
+        say "     ${C_DIM}БД в установщике: сервер ${HOST_NAME_V}_db, база db, пользователь db, пароль db${C_RESET}"
+    fi
 elif [[ "$TARGET" == "hosting" ]]; then
     next "Проверьте симлинк docroot: ${DOCROOT} → ${PROJECT_ROOT}/public"
 fi

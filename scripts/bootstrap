@@ -1000,6 +1000,11 @@ fi
 # --- Шаг: запуск локальных контейнеров ---------------------------------------------
 if [[ "$TARGET" == "local" ]]; then
     step "Запуск контейнеров (dl up)"
+    # Контейнеры от прошлой установки могли держать bind-mount на старый,
+    # уже пересозданный каталог проекта (внутри он выглядит пустым, сайт
+    # отвечает «File not found»). Перед up честно перезапускаем стек;
+    # данные БД живут в .docker/volume и down их не трогает.
+    dl down >/dev/null 2>&1 || true
     dl up
     DL_UP_DONE=1
     ok "Контейнеры запущены."
@@ -1121,12 +1126,32 @@ fi
 trap - ERR INT TERM
 CURRENT_STEP=""
 
+# Рамка по ширине содержимого: длину считаем по тексту без ANSI-кодов,
+# иначе правый край уезжает или остаётся дырка.
+draw_box() {
+    local lines=("$@") plains=() line plain len width=0 border pad i
+    for line in "${lines[@]}"; do
+        plain="$(printf '%s' "$line" | sed $'s/\033\\[[0-9;]*m//g')"
+        plains+=("$plain")
+        len=${#plain}
+        if (( len > width )); then
+            width=$len
+        fi
+    done
+    border="$(printf '─%.0s' $(seq 1 $((width + 2))))"
+    printf '%s\n' "${C_GREEN}┌${border}┐${C_RESET}"
+    for i in "${!lines[@]}"; do
+        pad=$((width - ${#plains[$i]}))
+        printf '%s %s%*s %s\n' "${C_GREEN}│${C_RESET}" "${lines[$i]}" "$pad" "" "${C_GREEN}│${C_RESET}"
+    done
+    printf '%s\n' "${C_GREEN}└${border}┘${C_RESET}"
+}
+
 say ""
-printf '%s\n' "${C_GREEN}┌──────────────────────────────────────────────────────────────┐${C_RESET}"
-printf '%s\n' "${C_GREEN}│${C_RESET} ${C_GREEN}Готово!${C_RESET} Проект ${VENDOR}/${NAME} установлен."
-printf '%s\n' "${C_GREEN}│${C_RESET} Каталог: ${PROJECT_ROOT}"
-printf '%s\n' "${C_GREEN}│${C_RESET} Модуль:  local/modules/${VENDOR}.engine"
-printf '%s\n' "${C_GREEN}└──────────────────────────────────────────────────────────────┘${C_RESET}"
+draw_box \
+    "${C_GREEN}Готово!${C_RESET} Проект ${VENDOR}/${NAME} установлен." \
+    "Каталог: ${PROJECT_ROOT}" \
+    "Модуль:  local/modules/${VENDOR}.engine"
 say ""
 say "${C_TITLE}Что дальше:${C_RESET}"
 

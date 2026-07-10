@@ -2,6 +2,14 @@
   <img src=".github/banner.svg" alt="Bitrix Boilerplate" width="520">
 </p>
 
+<p align="center">
+  <a href="https://packagist.org/packages/deemmoor/bitrix-boilerplate"><img src="https://img.shields.io/packagist/v/deemmoor/bitrix-boilerplate?label=packagist&color=2ea44f" alt="Packagist"></a>
+  <img src="https://img.shields.io/packagist/dependency-v/deemmoor/bitrix-boilerplate/php?label=php&color=777bb4" alt="PHP">
+  <img src="https://img.shields.io/github/license/DeemMoor/bitrix-boilerplate?color=007ec6" alt="License">
+  <img src="https://img.shields.io/github/repo-size/DeemMoor/bitrix-boilerplate?color=007ec6" alt="Repo size">
+  <img src="https://img.shields.io/github/last-commit/DeemMoor/bitrix-boilerplate?color=a4a61d" alt="Last commit">
+</p>
+
 # Bitrix Boilerplate
 
 Болванка для проектов на 1C-Битрикс: каркас проекта, основной модуль, API-роуты, контроллеры, use case, репозитории, DTO/presenter-слой, консольные команды, OpenAPI и миграции.

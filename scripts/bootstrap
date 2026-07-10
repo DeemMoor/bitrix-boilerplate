@@ -16,6 +16,11 @@
 
 set -Eeuo pipefail
 
+# Весь скрипт живёт внутри main, а вызывается последней строкой файла:
+# если curl в `bash <(curl ...)` оборвётся на середине, bash не выполнит
+# недокачанный кусок — он просто не найдёт вызова main.
+main() {
+
 ORIG_PWD="$PWD"
 DEFAULT_REPO_URL="https://github.com/DeemMoor/bitrix-boilerplate.git"
 PHP_MIN_VERSION="8.4"
@@ -1168,8 +1173,9 @@ fi
 SETUP_URL="http://${HOST_NAME_V}.localhost/bitrixsetup.php"
 if [[ "$TARGET" == "local" ]]; then
     if [[ "$BITRIX_SOURCE" == "setup" ]]; then
-        if [[ "$INTERACTIVE" -eq 1 ]] && command -v xdg-open >/dev/null 2>&1 \
-            && xdg-open "$SETUP_URL" >/dev/null 2>&1; then
+        if [[ "$INTERACTIVE" -eq 1 ]] && command -v xdg-open >/dev/null 2>&1; then
+            # Отвязанно в фоне: скрипт завершается сразу, не дожидаясь браузера.
+            (xdg-open "$SETUP_URL" >/dev/null 2>&1 &)
             next "Установите ядро Битрикса — открыл в браузере: ${SETUP_URL}"
         else
             next "Установите ядро Битрикса в браузере: ${SETUP_URL}"
@@ -1190,3 +1196,7 @@ fi
 
 say ""
 say "Документация API после установки модуля: /api/doc"
+
+}
+
+main "$@"

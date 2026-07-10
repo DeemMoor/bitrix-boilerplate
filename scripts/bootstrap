@@ -1165,7 +1165,9 @@ CURRENT_STEP=""
 
 # Рамка по ширине содержимого: длину считаем по тексту без ANSI-кодов,
 # иначе правый край уезжает или остаётся дырка.
-draw_box() {
+draw_box() { # draw_box <цвет> <отступ> <строки...>
+    local color="$1" indent="$2"
+    shift 2
     local lines=("$@") plains=() line plain len width=0 border pad i
     for line in "${lines[@]}"; do
         plain="$(printf '%s' "$line" | sed $'s/\033\\[[0-9;]*m//g')"
@@ -1176,16 +1178,16 @@ draw_box() {
         fi
     done
     border="$(printf '─%.0s' $(seq 1 $((width + 2))))"
-    printf '%s\n' "${C_GREEN}┌${border}┐${C_RESET}"
+    printf '%s%s\n' "$indent" "${color}┌${border}┐${C_RESET}"
     for i in "${!lines[@]}"; do
         pad=$((width - ${#plains[$i]}))
-        printf '%s %s%*s %s\n' "${C_GREEN}│${C_RESET}" "${lines[$i]}" "$pad" "" "${C_GREEN}│${C_RESET}"
+        printf '%s%s %s%*s %s\n' "$indent" "${color}│${C_RESET}" "${lines[$i]}" "$pad" "" "${color}│${C_RESET}"
     done
-    printf '%s\n' "${C_GREEN}└${border}┘${C_RESET}"
+    printf '%s%s\n' "$indent" "${color}└${border}┘${C_RESET}"
 }
 
 say ""
-draw_box \
+draw_box "$C_GREEN" "" \
     "${C_GREEN}Готово!${C_RESET} Проект ${VENDOR}/${NAME} установлен." \
     "Каталог: ${PROJECT_ROOT}" \
     "Модуль:  local/modules/${VENDOR}.engine"
@@ -1217,8 +1219,13 @@ if [[ "$TARGET" == "local" ]]; then
     fi
     if [[ "$BITRIX_SOURCE" != "deploy" ]]; then
         # В шаге «База данных» установщика Битрикса localhost не подойдёт:
-        # MySQL живёт в соседнем контейнере.
-        say "     ${C_DIM}БД в установщике: сервер ${HOST_NAME_V}_db, база db, пользователь db, пароль db${C_RESET}"
+        # MySQL живёт в соседнем контейнере — выделяем, чтобы не проскочили.
+        draw_box "$C_YELLOW" "     " \
+            "${C_YELLOW}БД в установщике Битрикса (не localhost!):${C_RESET}" \
+            "Сервер:       ${HOST_NAME_V}_db" \
+            "База:         db" \
+            "Пользователь: db" \
+            "Пароль:       db"
     fi
 elif [[ "$TARGET" == "hosting" ]]; then
     next "Проверьте симлинк docroot: ${DOCROOT} → ${PROJECT_ROOT}/public"

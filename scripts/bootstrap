@@ -16,6 +16,7 @@
 
 set -Eeuo pipefail
 
+ORIG_PWD="$PWD"
 DEFAULT_REPO_URL="https://github.com/DeemMoor/bitrix-boilerplate.git"
 PHP_MIN_VERSION="8.4"
 PHP_MIN_VERSION_ID=80400
@@ -401,7 +402,7 @@ Bitrix Boilerplate — интерактивный установщик.
   --server HOST / --server-user USER / --server-port PORT / --server-path PATH
                            Параметры .env для dl deploy.
   --strip-demo | --keep-demo  Удалить/оставить демо-код (на server/hosting удаляется всегда).
-  --git | --no-git         Делать ли git init + первый коммит. По умолчанию: git.
+  --git | --no-git         git init + добавить файлы в индекс (без коммита). По умолчанию: git.
   --force                  Разрешить установку в непустой каталог и перезапись .env.
   --yes                    Неинтерактивный режим: дефолты для всего незаданного.
   --ref REF                Ветка/тег болванки. По умолчанию: master
@@ -766,7 +767,8 @@ fi
 
 # --- Git ---------------------------------------------------------------------------
 section "Git"
-ask_yn GIT_INIT "Сделать git init и первый коммит?" y
+info "Мастер только инициализирует репозиторий и добавит файлы в индекс — коммит за вами."
+ask_yn GIT_INIT "Инициализировать git-репозиторий?" y
 
 # ---------------------------------------------------------------------------
 # Резюме и подтверждение
@@ -802,7 +804,7 @@ summary_line "Redis:" "$(if [[ "$WANT_REDIS" -eq 1 ]]; then echo да; else echo
 summary_line "Memcached:" "$(if [[ "$WANT_MEMCACHED" -eq 1 ]]; then echo да; else echo нет; fi)"
 summary_line "Кэш/сессии:" "${CACHE_V} / ${SESSION_V}"
 summary_line "Демо-данные:" "$(if [[ "$STRIP_DEMO" -eq 1 ]]; then echo удалить; else echo оставить; fi)"
-summary_line "Git:" "$(if [[ "$GIT_INIT" -eq 1 ]]; then echo "init + первый коммит"; else echo нет; fi)"
+summary_line "Git:" "$(if [[ "$GIT_INIT" -eq 1 ]]; then echo "init + add, без коммита"; else echo нет; fi)"
 say ""
 
 if [[ "$INTERACTIVE" -eq 1 && "$ASSUME_YES" -ne 1 ]]; then
@@ -1098,22 +1100,17 @@ fi
 if [[ "$GIT_INIT" -eq 1 ]]; then
     step "Git-репозиторий"
     if [[ -d .git ]]; then
-        info "Каталог уже под git — пропускаю init и коммит."
+        info "Каталог уже под git — пропускаю."
     else
         CLEANUP_PATHS+=("$PROJECT_ROOT/.git")
         git init --quiet
         git symbolic-ref HEAD refs/heads/main
         if ! git check-ignore -q .env; then
-            die ".env не игнорируется git (.gitignore повреждён?) — коммитить опасно, останавливаюсь."
+            die ".env не игнорируется git (.gitignore повреждён?) — добавлять файлы в индекс опасно, останавливаюсь."
         fi
+        # Коммит не делаем: сообщение и авторство первого коммита — дело проекта.
         git add -A
-        GIT_ID_ARGS=()
-        if ! git config user.email >/dev/null || ! git config user.name >/dev/null; then
-            warn "git identity не настроен — коммичу как «Bootstrap <bootstrap@localhost>». Настройте: git config --global user.name / user.email"
-            GIT_ID_ARGS=(-c user.name=Bootstrap -c user.email=bootstrap@localhost)
-        fi
-        git ${GIT_ID_ARGS[@]+"${GIT_ID_ARGS[@]}"} commit --quiet -m "Initial commit from bitrix-boilerplate"
-        ok "Создан репозиторий, первый коммит: $(git log --oneline -1)"
+        ok "Репозиторий создан, файлы в индексе. Первый коммит — за вами."
     fi
 fi
 
@@ -1132,30 +1129,39 @@ printf '%s\n' "${C_GREEN}│${C_RESET} Модуль:  local/modules/${VENDOR}.en
 printf '%s\n' "${C_GREEN}└──────────────────────────────────────────────────────────────┘${C_RESET}"
 say ""
 say "${C_TITLE}Что дальше:${C_RESET}"
+
+NEXT_N=1
+next() { # нумерованный шаг «что дальше»
+    say "  $((NEXT_N)). $1"
+    NEXT_N=$((NEXT_N + 1))
+}
+
+if [[ "$ORIG_PWD" != "$PROJECT_ROOT" ]]; then
+    next "cd ${PROJECT_ROOT}"
+fi
+
+SETUP_URL="http://${HOST_NAME_V}.localhost/bitrixsetup.php"
 if [[ "$TARGET" == "local" ]]; then
-    say "  1. cd ${PROJECT_ROOT}"
     if [[ "$BITRIX_SOURCE" == "setup" ]]; then
-        say "  2. Откройте /bitrixsetup.php в браузере и установите ядро Битрикса"
-        say "  3. dl exec \"vendor/bin/phinx migrate -c phinx.php\"    ${C_DIM}# миграции после установки ядра${C_RESET}"
-    elif [[ "$BITRIX_SOURCE" == "deploy" ]]; then
-        say "  2. dl exec \"vendor/bin/phinx migrate -c phinx.php\"    ${C_DIM}# миграции${C_RESET}"
-    else
-        say "  2. Установите ядро Битрикса вручную или запустите ./scripts/setup"
-        say "  3. dl exec \"vendor/bin/phinx migrate -c phinx.php\"    ${C_DIM}# миграции после установки ядра${C_RESET}"
+        if [[ "$INTERACTIVE" -eq 1 ]] && command -v xdg-open >/dev/null 2>&1 \
+            && xdg-open "$SETUP_URL" >/dev/null 2>&1; then
+            next "Установите ядро Битрикса — открыл в браузере: ${SETUP_URL}"
+        else
+            next "Установите ядро Битрикса в браузере: ${SETUP_URL}"
+        fi
+    elif [[ "$BITRIX_SOURCE" == "skip" ]]; then
+        next "Установите ядро Битрикса: ./scripts/setup, затем откройте ${SETUP_URL}"
     fi
-elif [[ "$TARGET" == "server" ]]; then
-    say "  1. cd ${PROJECT_ROOT}"
-    say "  2. Прогоните миграции: ${PHP_BIN} vendor/bin/phinx migrate -c phinx.php"
-    if [[ "$GIT_INIT" -eq 1 ]]; then
-        say "  3. Привяжите репозиторий проекта: git remote add origin <url> && git push -u origin main"
-    fi
-else
-    say "  1. Проверьте симлинк docroot: ${DOCROOT} → ${PROJECT_ROOT}/public"
-    say "  2. cd ${PROJECT_ROOT}"
-    say "  3. Прогоните миграции: ${PHP_BIN} vendor/bin/phinx migrate -c phinx.php"
-    if [[ "$GIT_INIT" -eq 1 ]]; then
-        say "  4. Привяжите репозиторий проекта: git remote add origin <url> && git push -u origin main"
+elif [[ "$TARGET" == "hosting" ]]; then
+    next "Проверьте симлинк docroot: ${DOCROOT} → ${PROJECT_ROOT}/public"
+fi
+
+if [[ "$GIT_INIT" -eq 1 ]]; then
+    next "Файлы уже в индексе — проверьте git status и сделайте первый коммит"
+    if [[ "$TARGET" != "local" ]]; then
+        next "Привяжите репозиторий проекта: git remote add origin <url> && git push -u origin main"
     fi
 fi
+
 say ""
 say "Документация API после установки модуля: /api/doc"

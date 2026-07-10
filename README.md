@@ -91,7 +91,7 @@ bash <(curl -fsSL https://github.com/DeemMoor/bitrix-boilerplate/raw/master/scri
 - Для `local`: наличие `dl`; PHP/Composer запускаются через `dl exec` внутри контейнера.
 - Для `server` и `hosting`: `PHP >= 8.4`, `composer`, установленный Битрикс в docroot.
 - При аварии выводит конкретную ошибку и откатывает созданные файлы/каталоги.
-- Перед первым коммитом проверяет, что `.env` игнорируется git.
+- Перед добавлением файлов в индекс проверяет, что `.env` игнорируется git.
 
 ## Что делает мастер
 
@@ -101,7 +101,8 @@ bash <(curl -fsSL https://github.com/DeemMoor/bitrix-boilerplate/raw/master/scri
 - На `server`/`hosting` ставит `APP_ENV=production`, `APP_DEBUG=false` и всегда удаляет демо-срез.
 - До `init` может удалить демо-код: Example-сущность, `/api/example`, `/api/test`, команду `ping`.
 - Запускает `scripts/init`: локально через `dl exec bash`, на сервере/хостинге через выбранный `PHP_BIN`.
-- Переименовывает `vendor.engine` в `<vendor>.engine`, обновляет `composer.json`, ставит Composer-зависимости и делает первый git-коммит по выбору.
+- Переименовывает `vendor.engine` в `<vendor>.engine`, обновляет `composer.json`, ставит Composer-зависимости.
+- По выбору делает `git init` и добавляет файлы в индекс. Коммит не делает — сообщение и авторство первого коммита остаются за вами.
 
 ## Неинтерактивный запуск
 

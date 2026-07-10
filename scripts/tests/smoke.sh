@@ -143,7 +143,9 @@ check "модуля vendor.engine больше нет"     test ! -e "$P/local/m
 check "демо удалено (ExampleController)"    test ! -e "$P/local/modules/acme.engine/lib/Controller/ExampleController.php"
 check "демо удалено (ExampleTable)"         test ! -e "$P/local/modules/acme.engine/lib/Entity/ExampleTable.php"
 check "dbconn.php создан"                   test -f "$P/local/php_interface/dbconn.php"
-check "git: ровно один коммит"              test "$(git -C "$P" rev-list --count HEAD)" = "1"
+check "git: репозиторий создан"             test -d "$P/.git"
+check "git: файлы в индексе"                test -n "$(git -C "$P" ls-files)"
+check "git: коммитов нет (за юзером)"       test -z "$(git -C "$P" rev-list --all 2>/dev/null)"
 check "git: .env игнорируется"              git -C "$P" check-ignore -q .env
 check "git: .env не в индексе"              test -z "$(git -C "$P" ls-files .env)"
 
@@ -174,7 +176,7 @@ check "upload перенесён и доступен"         grep -q 'user-file
 check "robots.txt юзера сохранён"           grep -q 'User-agent' "$S2/public_html/robots.txt"
 check "index.php юзера победил болваночный" grep -q 'REAL-HOMEPAGE' "$S2/public_html/index.php"
 check "демо удалено принудительно"          test ! -e "$D/local/modules/acme.engine/lib/Controller/ExampleController.php"
-check "git: ровно один коммит"              test "$(git -C "$D" rev-list --count HEAD)" = "1"
+check "git: репозиторий создан, файлы в индексе" test -n "$(git -C "$D" ls-files)"
 check "бэкапы отката подчищены"             test -z "$(find "$S2" -maxdepth 2 -name '.bootstrap-rollback.*' -print -quit)"
 
 # =============================================================================
@@ -190,10 +192,12 @@ check "server: docroot не симлинк"          test ! -L "$D2B/public"
 check "server: Битрикс в public"            test -f "$D2B/public/bitrix/.settings.php"
 check "server: модуль в корне проекта"      test -d "$D2B/local/modules/acme.engine"
 check "server: демо удалено"                test ! -e "$D2B/local/modules/acme.engine/lib/Controller/ExampleController.php"
-check "server: git ровно один коммит"       test "$(git -C "$D2B" rev-list --count HEAD)" = "1"
+check "server: git создан, файлы в индексе" test -n "$(git -C "$D2B" ls-files)"
 
 # =============================================================================
 note "Сценарий 3: повторный запуск сценария 1 (--force) не ломает проект"
+# первый коммит делает юзер — эмулируем и проверяем, что rerun его не тронет
+git -C "$P" -c user.name=User -c user.email=user@test commit -qm "Initial project state"
 S1_COMMIT="$(git -C "$P" rev-parse HEAD)"
 (cd "$S1" && bash "$BOOTSTRAP" --source-dir "$REPO_ROOT" --target local --dir project \
     --vendor acme --name shop --db mysql --redis --cache redis --session redis \
@@ -215,7 +219,7 @@ check ".env: CONNECTIONS=[mysql]"           grep -qx 'CONNECTIONS=\[mysql\]' "$P
 check ".settings.php создан"                test -f "$P4/local/.settings.php"
 check "bitrixsetup.php скачан по умолчанию" test -f "$P4/public/bitrixsetup.php"
 check "демо оставлено (по умолчанию)"       test -f "$P4/local/modules/vendor.engine/lib/Controller/ExampleController.php"
-check "git: ровно один коммит"              test "$(git -C "$P4" rev-list --count HEAD)" = "1"
+check "git: репозиторий создан, файлы в индексе" test -n "$(git -C "$P4" ls-files)"
 
 # =============================================================================
 note "Сценарий 5: режим composer create-project (--from-composer + BOOTSTRAP_ARGS)"
@@ -230,7 +234,7 @@ mkdir -p "$S5/vendor"
 check "composer.json: name acme/compo"      grep -q '"name": "acme/compo"' "$S5/composer.json"
 check "модуль acme.engine существует"       test -d "$S5/local/modules/acme.engine"
 check ".env создан"                         test -f "$S5/.env"
-check "git: ровно один коммит"              test "$(git -C "$S5" rev-list --count HEAD)" = "1"
+check "git: репозиторий создан, файлы в индексе" test -n "$(git -C "$S5" ls-files)"
 
 # =============================================================================
 note "Сценарий 6: авария на шаге composer — каталог проекта подчищен"

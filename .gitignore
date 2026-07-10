@@ -71,6 +71,11 @@ sess_*
 /*.rss
 /web.config
 
+# Служебные каталоги AI-агентов
+/.claude/
+/.codex/
+/.grok/
+
 # IDE, ОС и локальные инструменты
 /.idea/
 /.vscode/

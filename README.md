@@ -16,7 +16,7 @@ bash <(curl -fsSL https://github.com/DeemMoor/bitrix-boilerplate/raw/master/scri
 
 Мастер спросит сценарий установки:
 
-- `local` — локальная разработка: нужен только `dl`, PHP/Composer выполняются внутри контейнеров.
+- `local` — локальная разработка: нужен только [DL](https://local-deploy.github.io/ru/getting-started/install), PHP/Composer выполняются внутри контейнеров.
 - `server` — свой VPS/выделенный сервер: Битрикс уже стоит в `public/`, PHP/Composer работают на сервере.
 - `hosting` — shared-хостинг: Битрикс уже стоит в `public_html/`, код кладётся в `app/`, `public_html` заменяется симлинком на `app/public`.
 
@@ -24,26 +24,15 @@ bash <(curl -fsSL https://github.com/DeemMoor/bitrix-boilerplate/raw/master/scri
 
 ### 2. Через Composer
 
-После публикации пакета на Packagist:
-
 ```bash
 composer create-project deemmoor/bitrix-boilerplate myproject
 ```
 
-До публикации используйте VCS-репозиторий напрямую:
-
-```bash
-composer create-project \
-  --repository='{"type":"vcs","url":"https://github.com/DeemMoor/bitrix-boilerplate"}' \
-  --stability=dev \
-  deemmoor/bitrix-boilerplate myproject dev-master
-```
-
-После `create-project` запускается тот же мастер. Composer-способ требует host `PHP >= 8.4`, `composer`, `git`; для чистой локальной Docker/DL-установки используйте curl.
+После `create-project` запускается тот же мастер. Composer-способ требует `PHP >= 8.4`, `composer` и `git` на машине; для чистой локальной Docker/DL-установки используйте curl.
 
 ## Что внутри болванки
 
-Болванка ставится поверх ядра Битрикса и даёт готовый каркас проекта по канонам DDD и чистой архитектуры:
+Болванка ставится поверх ядра Битрикса и даёт готовый каркас проекта со слоёной структурой по принципам чистой архитектуры:
 
 - Основной модуль `local/modules/<vendor>.engine` со слоями: роуты (`routes.php`), контроллеры, use case'ы, репозитории, DTO и presenter'ы. В модуле лежит рабочий пример среза (сущность `Example`, эндпоинты `/api/example` и `/api/test`, консольная команда `ping`) — копируйте его код и делайте свой функционал по образцу.
 - REST API с OpenAPI-документацией из PHP-атрибутов — доступна на `/api/doc`.
@@ -55,6 +44,8 @@ composer create-project \
 ## Сценарии установки
 
 ### Локальная разработка
+
+Понадобится [DL](https://local-deploy.github.io/ru/getting-started/install) — инструмент локальной разработки в Docker-контейнерах (он же поднимает nginx/PHP/БД).
 
 ```bash
 mkdir myproject && cd myproject
@@ -92,7 +83,7 @@ bash <(curl -fsSL https://github.com/DeemMoor/bitrix-boilerplate/raw/master/scri
 ## Что проверяет установщик
 
 - Для всех режимов: `bash >= 4`, `git`.
-- Для `local`: наличие `dl`; PHP/Composer запускаются через `dl exec` внутри контейнера.
+- Для `local`: наличие [DL](https://local-deploy.github.io/ru/getting-started/install); PHP/Composer запускаются через `dl exec` внутри контейнера.
 - Для `server` и `hosting`: `PHP >= 8.4`, `composer`, установленный Битрикс в docroot.
 - При аварии выводит конкретную ошибку и откатывает созданные файлы/каталоги.
 - Не даёт случайно переустановиться поверх живого проекта: если болванка уже стоит в каталоге, установка остановится. Осознанная переустановка — флаг `--reinstall`; перенастроить окружение без перекладки файлов можно, запустив `./scripts/bootstrap` из каталога проекта.

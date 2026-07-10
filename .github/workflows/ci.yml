@@ -1,7 +1,9 @@
 name: CI
 
+# push только для master, иначе PR из веток этого же репо гоняется дважды
 on:
   push:
+    branches: [master, main]
   pull_request:
 
 jobs:

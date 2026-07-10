@@ -1,7 +1,8 @@
 # Битрикс
 /bitrix/
 /upload/
-/public/bitrixsetup.php
+/public/bitrixsetup.*
+/bitrixsetup.*
 /local/.settings.php
 /local/php_interface/dbconn.php
 

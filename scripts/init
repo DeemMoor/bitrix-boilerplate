@@ -311,6 +311,7 @@ rename_engine_module() {
     SRC_DIR="${src_dir}" DST_DIR="${dst_dir}" \
         NS_VENDOR="${ns_vendor}" SRC_ID="${src_id}" DST_ID="${dst_id}" \
         PROJECT_VENDOR="${PROJECT_VENDOR}" COMPOSER_FILE="${COMPOSER_FILE}" \
+        PROJECT_ROOT="${PROJECT_ROOT}" \
         "${PHP_BIN}" -d display_errors=stderr /dev/stdin <<'PHP'
 <?php
 $srcDir       = getenv('SRC_DIR');
@@ -320,6 +321,7 @@ $srcId        = getenv('SRC_ID');
 $dstId        = getenv('DST_ID');
 $vendor       = getenv('PROJECT_VENDOR');
 $composerFile = getenv('COMPOSER_FILE');
+$projectRoot  = getenv('PROJECT_ROOT');
 
 $srcClass = str_replace('.', '_', $srcId); // vendor_engine
 $dstClass = str_replace('.', '_', $dstId); // focal_engine
@@ -331,14 +333,7 @@ if (!rename($srcDir, $dstDir)) {
     exit(1);
 }
 
-$rii = new RecursiveIteratorIterator(
-    new RecursiveDirectoryIterator($dstDir, FilesystemIterator::SKIP_DOTS)
-);
-foreach ($rii as $file) {
-    if (!$file->isFile() || !preg_match('~\.(php|md|txt)$~', $file->getFilename())) {
-        continue;
-    }
-    $path = $file->getPathname();
+$rewrite = static function (string $path) use ($srcNs, $dstNs, $srcId, $dstId, $srcClass, $dstClass, $vendor): void {
     $orig = file_get_contents($path);
     // strtr — одновременная нестыкующаяся замена за один проход:
     $new = strtr($orig, [
@@ -349,6 +344,35 @@ foreach ($rii as $file) {
     $new = preg_replace("~(PARTNER_NAME\\s*=\\s*)'vendor'~", "$1'" . $vendor . "'", $new);
     if ($new !== $orig) {
         file_put_contents($path, $new);
+    }
+};
+
+$rii = new RecursiveIteratorIterator(
+    new RecursiveDirectoryIterator($dstDir, FilesystemIterator::SKIP_DOTS)
+);
+foreach ($rii as $file) {
+    if (!$file->isFile() || !preg_match('~\.(php|md|txt)$~', $file->getFilename())) {
+        continue;
+    }
+    $rewrite($file->getPathname());
+}
+
+// Ссылки на модуль живут и снаружи каталога: console (Loader::includeModule,
+// use Vendor\Engine\Command\*), тесты и сгенерированная OpenAPI-спека.
+// Без их правки php console падает с "Class Vendor\Engine\... not found".
+foreach ([$projectRoot . '/console', $projectRoot . '/local/bitrixoa.yaml'] as $path) {
+    if (is_file($path)) {
+        $rewrite($path);
+    }
+}
+if (is_dir($projectRoot . '/tests')) {
+    $rii = new RecursiveIteratorIterator(
+        new RecursiveDirectoryIterator($projectRoot . '/tests', FilesystemIterator::SKIP_DOTS)
+    );
+    foreach ($rii as $file) {
+        if ($file->isFile() && preg_match('~\.php$~', $file->getFilename())) {
+            $rewrite($file->getPathname());
+        }
     }
 }
 

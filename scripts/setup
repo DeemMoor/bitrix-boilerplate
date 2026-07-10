@@ -52,10 +52,12 @@ TARGET_FILE="${TARGET_DIR%/}/bitrixsetup.php"
 
 echo "[INFO] Скачиваем установщик Битрикс..."
 
+# Таймауты обязательны: без них при недоступном хосте скачивание молча
+# висит и выглядит как зависание установки.
 if command -v wget >/dev/null 2>&1; then
-    wget -O "${TARGET_FILE}" "${SOURCE_URL}"
+    wget --timeout=15 --tries=2 -O "${TARGET_FILE}" "${SOURCE_URL}"
 elif command -v curl >/dev/null 2>&1; then
-    curl -fsSL "${SOURCE_URL}" -o "${TARGET_FILE}"
+    curl -fSL --connect-timeout 15 --retry 2 "${SOURCE_URL}" -o "${TARGET_FILE}"
 else
     echo "[ERROR] Нужен wget или curl для скачивания установщика."
     exit 1

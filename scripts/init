@@ -641,6 +641,10 @@ echo "[INFO] Соединения: ${CONNECTION_ITEMS[*]}"
 update_composer_name
 rename_engine_module
 
+# Каталог для error.log из exception_handling: gitignored и в свежей
+# установке отсутствует — без него FileLogger сыпет Warning на каждую запись.
+mkdir -p "${PROJECT_ROOT}/logs"
+
 echo "[INFO] Генерируем local/.settings.php..."
 
 # Пишем через tmp+mv: перезапись файла на месте ломает hardlink-бэкапы

@@ -143,6 +143,7 @@ check "модуля vendor.engine больше нет"     test ! -e "$P/local/m
 check "демо удалено (ExampleController)"    test ! -e "$P/local/modules/acme.engine/lib/Controller/ExampleController.php"
 check "демо удалено (ExampleTable)"         test ! -e "$P/local/modules/acme.engine/lib/Entity/ExampleTable.php"
 check "dbconn.php создан"                   test -f "$P/local/php_interface/dbconn.php"
+check "каталог logs/ создан"                test -d "$P/logs"
 check "git: репозиторий создан"             test -d "$P/.git"
 check "git: файлы в индексе"                test -n "$(git -C "$P" ls-files)"
 check "git: коммитов нет (за юзером)"       test -z "$(git -C "$P" rev-list --all 2>/dev/null)"

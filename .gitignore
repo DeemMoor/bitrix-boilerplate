@@ -22,7 +22,8 @@ composer.phar
 
 # Логи и временные файлы
 /log/
-/logs/
+/logs/*
+!/logs/.gitkeep
 /local/logs/
 /local/tmp/
 /tmp/

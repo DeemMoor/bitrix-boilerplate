@@ -66,8 +66,8 @@ banner() {
  ██████╔╝██║   ██║   ██║  ██║██║██╔╝ ██╗
  ╚═════╝ ╚═╝   ╚═╝   ╚═╝  ╚═╝╚═╝╚═╝  ╚═╝
 EOF
-    printf '%s\n' "${C_RESET}${C_GREEN}        B O I L E R P L A T E${C_RESET}"
-    printf '%s\n' "${C_DIM}       интерактивная установка${C_RESET}"
+    printf '%s\n' "${C_RESET} ${C_TITLE}════════${C_RESET} ${C_GREEN}B O I L E R P L A T E${C_RESET} ${C_TITLE}════════${C_RESET}"
+    printf '%s\n' "${C_DIM}          интерактивная установка${C_RESET}"
 }
 
 
